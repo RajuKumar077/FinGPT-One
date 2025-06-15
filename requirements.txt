@@ -1,5 +1,5 @@
 streamlit==1.33.0
-yfinance==0.2.38
+yfinance~=0.2.0 # Changed to allow for newer patch versions within 0.2.x
 pandas==2.2.2
 numpy==1.26.4
 scikit-learn==1.4.2
