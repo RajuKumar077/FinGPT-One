@@ -1,6 +1,6 @@
 streamlit==1.45.1
-yfinance==0.1.99 # Pinned to an older, very stable version
-pandas==2.0.3 # Downgraded to a widely compatible 2.x version
+yfinance~=0.2.0 # Changed to allow latest 0.2.x versions, as 0.1.99 does not exist
+pandas==2.0.3
 numpy==1.26.4
 scikit-learn==1.4.2
 plotly==5.20.0
