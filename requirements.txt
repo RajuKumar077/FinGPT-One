@@ -1,17 +1,17 @@
-streamlit==1.33.0
-yfinance~=0.2.0 # Changed to allow for newer patch versions within 0.2.x
+streamlit==1.45.1
+yfinance~=0.2.0
 pandas==2.2.2
 numpy==1.26.4
 scikit-learn==1.4.2
 plotly==5.20.0
 lightgbm==4.3.0
-torch==2.3.0
-prophet==1.1.5 # For forecast_module.py
-statsmodels==0.14.2 # For forecast_module.py
-tensorflow==2.16.1 # For LSTM in forecast_module.py (if using TF backend for Keras)
-keras==3.3.3 # For LSTM in forecast_module.py
-requests==2.31.0 # For news_sentiment.py and yahoo_autocomplete.py
-textblob==0.18.0 # For news_sentiment.py
-shap==0.45.0 # For probabilistic_stock_model.py
-matplotlib==3.8.4 # For shap, seaborn plots
-seaborn==0.13.2 # For probabilistic_stock_model.py
+torch==2.0.1 # Changed to a more broadly compatible version
+prophet==1.1.5
+statsmodels==0.14.2
+tensorflow==2.16.1
+keras==3.3.3
+requests==2.31.0
+textblob==0.18.0
+shap==0.45.0
+matplotlib==3.8.4
+seaborn==0.13.2
