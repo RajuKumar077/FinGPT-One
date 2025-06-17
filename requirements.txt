@@ -1,28 +1,4 @@
-# Core scientific libraries
+cython==0.29.36
 numpy==1.24.3
-pandas==2.2.2
-
-# Required to build pystan
-Cython==0.29.36
-
-# Required for probabilistic models
-pystan==2.19.1.1
-
-# ML and preprocessing
-scikit-learn==1.4.2
-shap==0.44.1
-
-# Visualization
-matplotlib==3.8.4
-seaborn==0.13.2
-plotly==5.20.0
-
-# Stock data & APIs
 yfinance==0.2.28
-requests==2.31.0
-
-# Streamlit
-streamlit==1.45.1
-
-# Other utilities
-rich==14.0.0
+plotly==5.20.0  # 👈 Add this line here
