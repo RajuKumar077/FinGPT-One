@@ -21,7 +21,7 @@ yfinance==0.2.28
 # Model Explainability
 shap==0.44.1
 
-# Time Series Forecasting
-Cython==0.29.36           # ✅ Required for pystan to compile
-pystan==2.19.1.1          # ✅ Backend for Prophet
-prophet==1.1.5            # ✅ Main library used in forecast_module.py
+# Prophet dependencies
+Cython==0.29.36       # ✅ Required for pystan to compile
+pystan==2.19.1.1       # Prophet needs this specific version
+prophet==1.1.5         # Main time series forecasting module
