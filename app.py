@@ -1,15 +1,18 @@
+import os
+import subprocess
+import sys
+
+# Install dependencies BEFORE importing anything else
+if not os.path.exists("/tmp/.deps_installed"):
+    subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade", "pip"])
+    subprocess.run([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
+    open("/tmp/.deps_installed", "w").close()
+
 import streamlit as st
 import pandas as pd
 import numpy as np
 import warnings
 import time
-import os
-import subprocess
-
-# Install remaining dependencies (second batch)
-if not os.path.exists("/tmp/.deps_installed"):
-    subprocess.run(["pip", "install", "-r", "post_requirements.txt"])
-    open("/tmp/.deps_installed", "w").close()
     
 # Import functions from your separate modules
 import pages.yahoo_autocomplete as yahoo_autocomplete
