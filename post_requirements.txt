@@ -1,0 +1,25 @@
+# post_requirements.txt
+
+# 📈 Visualization
+pandas==2.1.4
+matplotlib==3.7.5
+seaborn==0.12.2
+plotly==5.20.0
+
+# 🤖 ML
+scikit-learn==1.2.2
+lightgbm==3.3.5
+torch==1.13.1
+
+# 📊 Finance
+yfinance==0.2.28
+
+# ⚙️ Streamlit
+streamlit==1.45.1
+
+# 🔍 Explainability
+shap==0.44.1
+
+# ⏳ Time Series Forecasting
+pystan==2.19.1.1
+prophet==1.1.5
