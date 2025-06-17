@@ -1,25 +1,17 @@
-# Core dependencies required early to avoid build errors
-numpy==1.24.4
-Cython==0.29.36
-
-# Avoid protobuf version conflicts by using newer TensorFlow compatible with Streamlit
-tensorflow==2.13.0
-streamlit==1.45.1
-
-# Data handling & analysis
+# Core Libraries
+numpy==1.24.3
 pandas==2.1.4
 scikit-learn==1.2.2
+
+# Streamlit App Framework
+streamlit==1.45.1
 
 # Visualization
 plotly==5.20.0
 
-# Machine learning
+# Machine Learning
 lightgbm==3.3.5
 torch==1.13.1
 
-# Forecasting
-prophet==1.1.5
-pystan==2.19.1.1  # Prophet depends on this exact version
-
-# Financial data
+# Financial Data
 yfinance==0.2.28
