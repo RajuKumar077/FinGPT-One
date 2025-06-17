@@ -1,29 +1,29 @@
-# Required before pystan installs
+# 🔧 Critical Fix: These must come FIRST for pystan/prophet to build
 Cython==0.29.36
 numpy==1.24.3
 
-# Data & ML Core
+# 🔢 Data Processing
 pandas==2.1.4
 scikit-learn==1.2.2
 
-# Visualization
+# 📈 Visualization
 matplotlib==3.7.5
 seaborn==0.12.2
 plotly==5.20.0
 
-# Deep Learning
-torch==1.13.1
+# 🤖 Machine Learning & DL
 lightgbm==3.3.5
+torch==1.13.1
 
-# Streamlit App
-streamlit==1.45.1
-
-# Financial data
+# 📊 Finance
 yfinance==0.2.28
 
-# Explainability
+# ⚙️ Streamlit App
+streamlit==1.45.1
+
+# 🔍 Explainability
 shap==0.44.1
 
-# Time Series
+# ⏳ Time Series Forecasting
 pystan==2.19.1.1
 prophet==1.1.5
