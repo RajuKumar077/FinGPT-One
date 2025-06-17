@@ -3,7 +3,14 @@ import pandas as pd
 import numpy as np
 import warnings
 import time
+import os
+import subprocess
 
+# Install remaining dependencies (second batch)
+if not os.path.exists("/tmp/.deps_installed"):
+    subprocess.run(["pip", "install", "-r", "post_requirements.txt"])
+    open("/tmp/.deps_installed", "w").close()
+    
 # Import functions from your separate modules
 import pages.yahoo_autocomplete as yahoo_autocomplete
 import pages.stock_summary as stock_summary
