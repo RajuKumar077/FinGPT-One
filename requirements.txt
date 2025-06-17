@@ -1,12 +1,20 @@
 streamlit==1.45.1
-yfinance==0.2.38 # Latest stable version, hoping for better Python 3.13.x compatibility
-pandas==2.2.2 # A recent stable pandas version, often has better modern Python support
-numpy==1.26.4 # Compatible with pandas 2.2.2
-scikit-learn==1.4.2 # Recent version, may have better Python 3.13.x compatibility
+yfinance==0.2.28
+pandas==2.1.4
+numpy==1.24.4
+scikit-learn==1.2.2
+plotly==5.20.0
+lightgbm==3.3.5
+torch==1.13.1+cpu # Specify CPU version for cloud deployment
+prophet==1.1.5
+pystan==2.19.1.1 # Dependency for Prophet
+statsmodels==0.13.5
+tensorflow==2.9.1 # Known stable version for Python 3.9
+keras==2.9.0 # Aligns with TensorFlow 2.9.1
 requests==2.31.0
 textblob==0.18.0
-plotly==5.20.0
-matplotlib==3.8.4
-seaborn==0.13.2
-setuptools==69.5.1 # Updated setuptools
-wheel==0.45.0 # Updated wheel
+shap==0.41.0
+matplotlib==3.7.1
+seaborn==0.12.2
+setuptools==65.5.1
+wheel==0.38.4
