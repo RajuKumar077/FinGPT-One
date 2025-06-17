@@ -22,5 +22,6 @@ yfinance==0.2.28
 shap==0.44.1
 
 # Time Series Forecasting
-prophet==1.1.5        # ✅ required for forecast_module.py
-pystan==2.19.1.1       # ✅ required backend for prophet
+Cython==0.29.36           # ✅ Required for pystan to compile
+pystan==2.19.1.1          # ✅ Backend for Prophet
+prophet==1.1.5            # ✅ Main library used in forecast_module.py
