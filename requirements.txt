@@ -10,3 +10,4 @@ lightgbm==4.3.0
 torch==2.2.2
 prophet
 statsmodels
+tensorflow
