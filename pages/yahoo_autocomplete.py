@@ -3,11 +3,11 @@ import time
 import yfinance as yf # Add yfinance import here as it's used in app.py's load_historical_data
 import json # Import json for explicit parsing
 
-def fetch_yahoo_suggestions(query, retries=3, initial_delay=0.5):
+def fetch_yahoo_suggestions(query, retries=5, initial_delay=0.75): # Increased retries and initial_delay
     """
     Fetch stock ticker suggestions from Yahoo Finance's unofficial API.
     Supports Indian stocks (e.g., NALCO.NS) and global stocks.
-    Includes retry logic for robustness.
+    Includes robust retry logic for improved resilience against transient API issues.
     """
     if not query:
         return []
@@ -24,13 +24,13 @@ def fetch_yahoo_suggestions(query, retries=3, initial_delay=0.5):
             if attempt > 0:
                 # Exponential backoff: delay doubles with each retry
                 sleep_time = initial_delay * (2 ** (attempt - 1))
-                print(f"Retrying Yahoo suggestion fetch (attempt {attempt}/{retries}). Waiting {sleep_time:.1f} seconds...")
+                print(f"Retrying Yahoo suggestion fetch (attempt {attempt}/{retries}). Waiting {sleep_time:.2f} seconds...")
                 time.sleep(sleep_time)
             else:
                 # Initial delay for the first attempt
                 time.sleep(initial_delay)
 
-            response = requests.get(url, headers=headers, timeout=10)
+            response = requests.get(url, headers=headers, timeout=15) # Increased timeout
             response.raise_for_status() # Raise an HTTPError for bad responses (4xx or 5xx)
 
             data = response.json() # Attempt JSON parsing
@@ -61,7 +61,7 @@ def fetch_yahoo_suggestions(query, retries=3, initial_delay=0.5):
                 return []
         except requests.exceptions.HTTPError as http_err:
             print(f"Attempt {attempt}/{retries}: HTTP Error {response.status_code} when fetching Yahoo suggestions: {http_err}")
-            if response.status_code == 429:
+            if response.status_code == 429: # Explicitly check for rate limit
                 print("Rate limited by Yahoo Finance. Automatically retrying...")
             if attempt == retries:
                 return []
@@ -70,5 +70,3 @@ def fetch_yahoo_suggestions(query, retries=3, initial_delay=0.5):
             if attempt == retries:
                 return []
     return [] # Should not be reached if retries are exhausted and error occurs, but as a fallback
-
-# Note: The if __name__ == "__main__": block is removed as this file is now imported as a module.
