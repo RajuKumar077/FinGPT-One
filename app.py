@@ -1,26 +1,17 @@
-import os
-import subprocess
-import sys
-
-# Install dependencies BEFORE importing anything else
-if not os.path.exists("/tmp/.deps_installed"):
-    subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade", "pip"])
-    subprocess.run([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
-    open("/tmp/.deps_installed", "w").close()
-
 import streamlit as st
 import pandas as pd
 import numpy as np
 import warnings
 import time
-    
+import yfinance as yf # Import yfinance directly in app.py for load_historical_data
+
 # Import functions from your separate modules
 import pages.yahoo_autocomplete as yahoo_autocomplete
 import pages.stock_summary as stock_summary
 import pages.financials as financials
 import pages.probabilistic_stock_model as probabilistic_stock_model
 import pages.forecast_module as forecast_module
-import pages.news_sentiment as news_sentiment  # Make sure NEWS_API_KEY is defined here or passed
+import pages.news_sentiment as news_sentiment
 
 warnings.filterwarnings('ignore')  # Suppress warnings for cleaner output
 
@@ -56,7 +47,6 @@ st.markdown("""
 # NewsAPI.com API Key - IMPORTANT: Replace with your actual key
 NEWS_API_KEY = "874ba654bdcd4aa7b68f7367a907cc2f"  # Replace with your NewsAPI key
 
-
 # --- Custom CSS and Font Loading ---
 def load_css(file_path):
     """Loads custom CSS from a file."""
@@ -66,45 +56,57 @@ def load_css(file_path):
     except FileNotFoundError:
         st.error(f"Error: CSS file not found at {file_path}. Please ensure 'assets/style.css' exists.")
 
-
 # Call CSS loading AFTER set_page_config
 st.markdown(
     "<link href='https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap' rel='stylesheet'>",
     unsafe_allow_html=True)
 load_css("assets/style.css")
 
-# --- Theme Management (Day/Night Button) ---
-# Initialize theme in session state if not already present
-if 'theme' not in st.session_state:
-    st.session_state.theme = 'dark'  # Default theme is dark
-
-
-# Function to toggle theme in Streamlit's session_state
-# This function is now only called by the JavaScript via a hidden input for simplicity
-def toggle_theme_internal(new_theme):
-    """Internal function to update Streamlit session state and rerun based on JS input."""
-    st.session_state.theme = new_theme
-    st.rerun()  # Rerun to update button label and apply theme changes via Python state
-
-
-
 
 # --- Common Data Loading & Feature Engineering Functions ---
-# These functions are general utilities and can reside in app.py or a separate 'utils.py'
 @st.cache_data(ttl=3600, show_spinner=False)  # Cache historical data for 1 hour
-def load_historical_data(stock_name, period="5y"):
-    """Loads historical stock data from Yahoo Finance."""
-    try:
-        stock = yahoo_autocomplete.yf.Ticker(stock_name)  # Using yf from yahoo_autocomplete module
-        hist = stock.history(period=period).reset_index()
-        hist['Date'] = pd.to_datetime(hist['Date']).dt.tz_localize(None)
-        if hist.empty:
-            st.error(f"No historical data found for {stock_name}. Please check the ticker symbol.")
-            return None
-        return hist
-    except Exception as e:
-        st.error(f"Error loading historical data for {stock_name}: {e}")
-        return None
+def load_historical_data(stock_name, period="5y", retries=3, initial_delay=0.5):
+    """
+    Loads historical stock data from Yahoo Finance with retry logic.
+    Handles potential API blocking or invalid responses gracefully.
+    """
+    if not stock_name:
+        return pd.DataFrame()
+
+    # Ensure no proxy is set if it was causing issues (can be left out if not relevant)
+    yf.set_proxy(None) 
+
+    for attempt in range(retries + 1):
+        try:
+            if attempt > 0:
+                sleep_time = initial_delay * (2 ** (attempt - 1))
+                print(f"Retrying historical data fetch for {stock_name} (attempt {attempt}/{retries}). Waiting {sleep_time:.1f} seconds...")
+                time.sleep(sleep_time)
+
+            stock = yf.Ticker(stock_name)
+            # Add a timeout to the history call for robustness
+            hist = stock.history(period=period, timeout=15) 
+
+            if hist.empty:
+                # If history is empty but no error, it might mean no data for ticker/period
+                if attempt == retries: # Only show error on last attempt if still empty
+                    st.error(f"❌ No historical data found for {stock_name}. This might be due to issues with the Yahoo Finance API, an invalid ticker, or the stock being delisted. Please try another symbol or check again later.")
+                continue # Continue to retry if not last attempt
+            
+            hist.reset_index(inplace=True)
+            hist['Date'] = pd.to_datetime(hist['Date']).dt.tz_localize(None) # Ensure no timezone for consistency
+            return hist # Data loaded successfully, return it
+
+        except Exception as e:
+            # Catch all exceptions during yfinance call, including JSONDecodeError from requests indirectly
+            print(f"Attempt {attempt}/{retries}: Failed to get historical data for {stock_name}. Error: {e}")
+            if "Expecting value: line 1 column 1" in str(e) or "429 Client Error: Too Many Requests" in str(e):
+                print(f"Likely Yahoo Finance API blocking/rate limiting for {stock_name}. Retrying...")
+            
+            if attempt == retries:
+                st.error(f"⚠️ Failed to load historical data for {stock_name} after multiple attempts. This often happens with Yahoo Finance's unofficial API due to rate limits or bot detection. Please try again later or with a different symbol.")
+                return pd.DataFrame() # Return empty DataFrame on final failure
+    return pd.DataFrame() # Fallback return if loop finishes without returning
 
 
 @st.cache_data(show_spinner=False)
@@ -133,7 +135,6 @@ def compute_rsi(series, period=14):
     avg_loss = loss.rolling(window=period).mean()
     rs = avg_gain / avg_loss
     return 100 - (100 / (1 + rs))
-
 
 # --- Streamlit Application Main Layout ---
 def main():
@@ -164,21 +165,21 @@ def main():
     # Autocomplete suggestions
     suggestions = []
     if ticker_input:
-        suggestions = yahoo_autocomplete.fetch_yahoo_suggestions(ticker_input)  # Call from yahoo_autocomplete
+        # Use the robust fetch_yahoo_suggestions from yahoo_autocomplete module
+        suggestions = yahoo_autocomplete.fetch_yahoo_suggestions(ticker_input)
 
-    # --- FIX: Only display columns and buttons if suggestions exist ---
+    # --- Only display columns and buttons if suggestions exist ---
     if suggestions:
         st.markdown("<h5>Suggestions:</h5>", unsafe_allow_html=True)
         num_columns_to_create = min(len(suggestions), 5)
-
-        if num_columns_to_create > 0:  # Ensure we create at least one column if suggestions are present
+        
+        if num_columns_to_create > 0: # Ensure we create at least one column if suggestions are present
             cols = st.columns(num_columns_to_create)
             for i, suggestion in enumerate(suggestions):
-                if i < len(cols):  # Defensive check to prevent index out of range
+                if i < len(cols): # Defensive check to prevent index out of range
                     with cols[i]:
                         if st.button(suggestion, key=f"suggestion_{i}"):
-                            st.session_state.current_ticker = suggestion.split(' - ')[
-                                0]  # Extract just the ticker symbol
+                            st.session_state.current_ticker = suggestion.split(' - ')[0]  # Extract just the ticker symbol
                             st.session_state.analyze_triggered = True
                             st.rerun()  # Rerun to update the main input and trigger analysis
     # --- END FIX ---
@@ -207,16 +208,17 @@ def main():
 
         # Use st.session_state to cache historical data
         # Only load data if ticker changes or not loaded yet
-        if 'historical_data' not in st.session_state or st.session_state.historical_data is None or st.session_state.historical_data.empty or st.session_state.historical_data.name != ticker_to_analyze:
+        if 'historical_data' not in st.session_state or st.session_state.historical_data is None or st.session_state.historical_data.empty or (hasattr(st.session_state.historical_data, 'name') and st.session_state.historical_data.name != ticker_to_analyze):
             with st.spinner(f"Loading historical data for {ticker_to_analyze.upper()}..."):
+                # Call the load_historical_data function with retry logic
                 st.session_state.historical_data = load_historical_data(ticker_to_analyze)
-                if st.session_state.historical_data is not None:
+                if not st.session_state.historical_data.empty: # Only store name if data was actually loaded
                     st.session_state.historical_data.name = ticker_to_analyze  # Store ticker name with data for caching logic
 
         hist_data_for_tabs = st.session_state.historical_data
 
-        if hist_data_for_tabs is None or hist_data_for_tabs.empty:
-            st.error(f"Cannot perform analysis: No historical data available for {ticker_to_analyze}.")
+        if hist_data_for_tabs.empty: # Check for empty DataFrame instead of None
+            # Error message is already shown by load_historical_data
             st.session_state.analyze_triggered = False  # Reset trigger
             # st.stop() # Uncomment if you want to stop further execution when no data
             return  # Exit function if no data
