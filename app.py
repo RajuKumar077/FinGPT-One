@@ -73,9 +73,6 @@ def load_historical_data(stock_name, period="5y", retries=3, initial_delay=0.5):
     if not stock_name:
         return pd.DataFrame()
 
-    # Ensure no proxy is set if it was causing issues (can be left out if not relevant)
-    yf.set_proxy(None) 
-
     for attempt in range(retries + 1):
         try:
             if attempt > 0:
@@ -85,14 +82,14 @@ def load_historical_data(stock_name, period="5y", retries=3, initial_delay=0.5):
 
             stock = yf.Ticker(stock_name)
             # Add a timeout to the history call for robustness
-            hist = stock.history(period=period, timeout=15) 
+            hist = stock.history(period=period, timeout=15)
 
             if hist.empty:
                 # If history is empty but no error, it might mean no data for ticker/period
                 if attempt == retries: # Only show error on last attempt if still empty
                     st.error(f"❌ No historical data found for {stock_name}. This might be due to issues with the Yahoo Finance API, an invalid ticker, or the stock being delisted. Please try another symbol or check again later.")
                 continue # Continue to retry if not last attempt
-            
+
             hist.reset_index(inplace=True)
             hist['Date'] = pd.to_datetime(hist['Date']).dt.tz_localize(None) # Ensure no timezone for consistency
             return hist # Data loaded successfully, return it
@@ -102,7 +99,7 @@ def load_historical_data(stock_name, period="5y", retries=3, initial_delay=0.5):
             print(f"Attempt {attempt}/{retries}: Failed to get historical data for {stock_name}. Error: {e}")
             if "Expecting value: line 1 column 1" in str(e) or "429 Client Error: Too Many Requests" in str(e):
                 print(f"Likely Yahoo Finance API blocking/rate limiting for {stock_name}. Retrying...")
-            
+
             if attempt == retries:
                 st.error(f"⚠️ Failed to load historical data for {stock_name} after multiple attempts. This often happens with Yahoo Finance's unofficial API due to rate limits or bot detection. Please try again later or with a different symbol.")
                 return pd.DataFrame() # Return empty DataFrame on final failure
@@ -172,7 +169,7 @@ def main():
     if suggestions:
         st.markdown("<h5>Suggestions:</h5>", unsafe_allow_html=True)
         num_columns_to_create = min(len(suggestions), 5)
-        
+
         if num_columns_to_create > 0: # Ensure we create at least one column if suggestions are present
             cols = st.columns(num_columns_to_create)
             for i, suggestion in enumerate(suggestions):
