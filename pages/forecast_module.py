@@ -1,5 +1,4 @@
 import streamlit as st
-# import yfinance as yf # Not directly used for data fetching, hist_data is passed
 import pandas as pd
 import numpy as np
 from prophet import Prophet
@@ -249,26 +248,15 @@ def create_forecast_comparison_chart(hist, forecasts):
                 combined_df = combined_df.combine_first(fc_series.to_frame(name=model_name))
         
         if not combined_df.empty:
-            for i, model_name in enumerate(combined_df.columns):
+            combined_df['Average'] = combined_df.mean(axis=1, skipna=True)
+            if not combined_df['Average'].dropna().empty:
                 fig.add_trace(go.Scatter(
                     x=combined_df.index,
-                    y=combined_df[model_name],
+                    y=combined_df['Average'],
                     mode='lines+markers',
-                    name=f'🤖 {model_name}',
-                    line=dict(color=colors[i % len(colors)], width=2, dash='dash')
+                    name='🎯 Ensemble Average',
+                    line=dict(color='gold', width=4, dash='solid') # Changed dash to solid for emphasis
                 ))
-
-            # Add Ensemble Average only if multiple models succeeded
-            if len(combined_df.columns) > 1:
-                combined_df['Average'] = combined_df.mean(axis=1, skipna=True)
-                if not combined_df['Average'].dropna().empty:
-                    fig.add_trace(go.Scatter(
-                        x=combined_df.index,
-                        y=combined_df['Average'],
-                        mode='lines+markers',
-                        name='🎯 Ensemble Average',
-                        line=dict(color='gold', width=4, dash='solid') # Changed dash to solid for emphasis
-                    ))
     
     # Add vertical line at forecast start
     if not hist['Date'].empty:
