@@ -5,18 +5,13 @@ import plotly.graph_objs as go
 import plotly.express as px
 from datetime import datetime, timedelta
 from collections import Counter
-# import yfinance as yf # Not used, we will use Alpha Vantage to get company name
 import pandas as pd
 import numpy as np
-import json # Added json import for Alpha Vantage response parsing
-import time # Added time for Alpha Vantage rate limiting
+import json
+import time
 
-# Alpha Vantage API Key (should be the same as in app.py)
+# Alpha Vantage API Key
 ALPHA_VANTAGE_API_KEY = "9NBXSBBIYEBJHBIP"
-
-# NEWS_API_KEY is expected to be passed from app.py or retrieved from a global config
-# For modularity, it's better to pass it or have a common config file.
-# We will receive it as an argument in display_news_sentiment.
 
 # --- News Fetching and Sentiment Analysis ---
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -30,7 +25,7 @@ def fetch_news_articles(company_name, news_api_key, total_articles=50):
         url = (
             f"https://newsapi.org/v2/everything?q={company_name}&language=en"
             f"&sortBy=publishedAt&pageSize={min(page_size, total_articles - len(articles))}"
-            f"f"&page={page}&apiKey={news_api_key}" # Fixed extra f-string prefix
+            f"&page={page}&apiKey={news_api_key}" # Corrected f-string usage
         )
         try:
             response = requests.get(url)
@@ -241,7 +236,7 @@ def display_news_sentiment(ticker, news_api_key):
         
         # Dynamic industry keywords or broader search query could be implemented
         # The search for NewsAPI is broad, it searches for (company_name OR ticker OR keywords)
-        industry_keywords = ["stock", "market", "economy", "invest", "share", "financial"] # Added 'financial'
+        industry_keywords = ["stock", "market", "economy", "invest", "share", "financial"]
         search_query = f'"{company_name}" OR "{ticker}"' # Prioritize exact name/ticker
         # Add keywords for broader search, ensuring unique terms
         unique_keywords = [k for k in industry_keywords if k.lower() not in company_name.lower() and k.lower() != ticker.lower()]
@@ -284,7 +279,7 @@ def display_news_sentiment(ticker, news_api_key):
     
     create_sentiment_metrics_cards(sentiments, articles)
 
-    st.markdown("<h4 class4='section-subtitle'>Sentiment Charts</h4>", unsafe_allow_html=True) # Typo fixed from h44
+    st.markdown("<h4 class='section-subtitle'>Sentiment Charts</h4>", unsafe_allow_html=True)
     
     chart_cols = st.columns(2)
     with chart_cols[0]:
