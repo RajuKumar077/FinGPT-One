@@ -1,5 +1,5 @@
 import streamlit as st
-import yfinance as yf  # Keep yfinance here for internal stock info if needed, but primary data comes as hist_data
+# import yfinance as yf # Not directly used for data fetching, data is passed as hist_data
 import pandas as pd
 import numpy as np
 from sklearn.calibration import CalibratedClassifierCV
@@ -162,6 +162,8 @@ def visualize_probabilities(model_probs, dates, model_name):
         xaxis_title="Date",
         yaxis_title="Probability",
         template="plotly_dark",
+        paper_bgcolor="#1A1A1D", # Explicitly set paper background to match body
+        plot_bgcolor="#28282A",   # Explicitly set plot background to match card background
         hovermode="x unified",
         margin=dict(l=40, r=40, t=60, b=40),
         font=dict(family="Inter", size=12, color="#E0E0E0")
@@ -171,14 +173,19 @@ def visualize_probabilities(model_probs, dates, model_name):
 
 def plot_confusion(y_true, y_pred, model_name):
     """Plots a confusion matrix using Seaborn."""
-    cm = confusion_matrix(y_true, y_pred)
-    fig, ax = plt.subplots(figsize=(6, 5))
+    # Explicitly set figure and axes background colors for Matplotlib/Seaborn
+    fig, ax = plt.subplots(figsize=(6, 5), facecolor='#1A1A1D') # Set figure background
+    ax.set_facecolor('#28282A') # Set axes background
+    
+    cm = confusion_matrix(y_true, y_pred) # Define cm here
     sns.heatmap(cm, annot=True, fmt='d', cmap='viridis', cbar=False,
                 xticklabels=['Predict Down', 'Predict Up'],
                 yticklabels=['Actual Down', 'Actual Up'], ax=ax)
-    ax.set_title(f'Confusion Matrix - {model_name}', fontsize=14)
-    ax.set_xlabel('Predicted', fontsize=12)
-    ax.set_ylabel('True', fontsize=12)
+    ax.set_title(f'Confusion Matrix - {model_name}', fontsize=14, color="#E0E0E0") # Text color
+    ax.set_xlabel('Predicted', fontsize=12, color="#E0E0E0") # Text color
+    ax.set_ylabel('True', fontsize=12, color="#E0E0E0") # Text color
+    ax.tick_params(axis='x', colors='#E0E0E0') # Tick color
+    ax.tick_params(axis='y', colors='#E0E0E0') # Tick color
     plt.tight_layout()
     return fig
 
@@ -198,6 +205,8 @@ def plot_roc_curve(y_true, y_probs, model_name):
         xaxis_title='False Positive Rate',
         yaxis_title='True Positive Rate',
         template="plotly_dark",
+        paper_bgcolor="#1A1A1D", # Explicitly set paper background
+        plot_bgcolor="#28282A",   # Explicitly set plot background
         showlegend=True,
         margin=dict(l=40, r=40, t=60, b=40),
         font=dict(family="Inter", size=12, color="#E0E0E0")
@@ -225,10 +234,15 @@ def explain_with_shap(model, X_sample, model_type="tree"):
         else:
             shap_values_to_plot = shap_values
 
-        fig, ax = plt.subplots(figsize=(10, 6))
+        # Explicitly set figure and axes background colors for Matplotlib/Seaborn
+        fig, ax = plt.subplots(figsize=(10, 6), facecolor='#1A1A1D') # Set figure background
+        ax.set_facecolor('#28282A') # Set axes background
+        
         # Removed 'ax=ax' from shap.summary_plot as it can cause issues with some versions/plots
         shap.summary_plot(shap_values_to_plot, X_sample, plot_type="bar", show=False)
-        ax.set_title(f'SHAP Feature Importance - {model.__class__.__name__}', fontsize=14)
+        ax.set_title(f'SHAP Feature Importance - {model.__class__.__name__}', fontsize=14, color="#E0E0E0") # Text color
+        ax.tick_params(axis='x', colors='#E0E0E0') # Tick color
+        ax.tick_params(axis='y', colors='#E0E0E0') # Tick color
         plt.tight_layout()
         return fig
     except Exception as e:
@@ -298,8 +312,8 @@ def display_probabilistic_models(hist_data):
             test_dates_lstm = hist_data['Date'].iloc[-len(y_test_lstm):].values
             st.text(f"Classification Report:\n{classification_report(y_test_lstm, lstm_test_preds)}")
             st.pyplot(plot_confusion(y_test_lstm, lstm_test_preds, "LSTM"))
-            st.plotly_chart(plot_roc_curve(y_test_lstm, lstm_test_probs, "LSTM"))
             st.plotly_chart(visualize_probabilities(lstm_test_probs, test_dates_lstm, "LSTM"))
+            st.plotly_chart(plot_roc_curve(y_test_lstm, lstm_test_probs, "LSTM"))
         else:
             st.info("LSTM Model data not sufficient for evaluation or training failed.")
 
@@ -309,8 +323,8 @@ def display_probabilistic_models(hist_data):
         lgbm_test_probs = lgbm_model.predict_proba(X_test_ml)[:, 1]
         st.text(f"Classification Report:\n{classification_report(y_test_ml, lgbm_test_preds)}")
         st.pyplot(plot_confusion(y_test_ml, lgbm_test_preds, "LightGBM"))
-        st.plotly_chart(plot_roc_curve(y_test_ml, lgbm_test_probs, "LightGBM"))
         st.plotly_chart(visualize_probabilities(lgbm_test_probs, test_dates_ml, "LightGBM"))
+        st.plotly_chart(plot_roc_curve(y_test_ml, lgbm_test_probs, "LightGBM"))
 
     with metrics_cols[2]:
         st.markdown("<h5>Calibrated Random Forest Model</h5>", unsafe_allow_html=True)
@@ -318,8 +332,8 @@ def display_probabilistic_models(hist_data):
         rf_test_probs = rf_calibrated_model.predict_proba(X_test_ml)[:, 1]
         st.text(f"Classification Report:\n{classification_report(y_test_ml, rf_test_preds)}")
         st.pyplot(plot_confusion(y_test_ml, rf_test_preds, "Calibrated Random Forest"))
-        st.plotly_chart(plot_roc_curve(y_test_ml, rf_test_probs, "Calibrated Random Forest"))
         st.plotly_chart(visualize_probabilities(rf_test_probs, test_dates_ml, "Calibrated Random Forest"))
+        st.plotly_chart(plot_roc_curve(y_test_ml, rf_test_probs, "Calibrated Random Forest"))
 
     st.markdown("<h4 class='section-subtitle'>Model Explainability (SHAP)</h4>", unsafe_allow_html=True)
     shap_cols = st.columns(2)
@@ -338,5 +352,3 @@ def display_probabilistic_models(hist_data):
                 st.pyplot(rf_shap_plot)
         else:
             st.info("Calibrated Random Forest model or data not available for SHAP explanation.")
-
-# Note: The if __name__ == "__main__": block is removed as this file is now imported as a module.
