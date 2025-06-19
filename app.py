@@ -3,7 +3,8 @@ import pandas as pd
 import numpy as np
 import warnings
 import time
-import yfinance as yf # Import yfinance directly in app.py for load_historical_data
+import requests # Import requests for Alpha Vantage API calls
+import json # Import json for parsing API responses
 
 # Import functions from your separate modules
 import pages.yahoo_autocomplete as yahoo_autocomplete
@@ -16,16 +17,14 @@ import pages.news_sentiment as news_sentiment
 warnings.filterwarnings('ignore')  # Suppress warnings for cleaner output
 
 # --- GLOBAL CONFIGURATIONS AND INITIAL STREAMLIT SETUP ---
-# st.set_page_config() MUST BE THE FIRST STREAMLIT COMMAND
 st.set_page_config(
     page_title="Intelligent Stock Insights",
     layout="wide",
-    # Hide the Streamlit main menu and sidebar toggle
-    initial_sidebar_state="collapsed",  # Ensures sidebar is collapsed
+    initial_sidebar_state="collapsed",
     menu_items={
-        'Get help': None,  # Disables 'Get help' in the menu
-        'Report a bug': None,  # Disables 'Report a bug' in the menu
-        'About': None  # Disables 'About' in the menu
+        'Get help': None,
+        'Report a bug': None,
+        'About': None
     },
     page_icon="📈"
 )
@@ -45,7 +44,10 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # NewsAPI.com API Key - IMPORTANT: Replace with your actual key
-NEWS_API_KEY = "874ba654bdcd4aa7b68f7367a907cc2f"  # Replace with your NewsAPI key
+NEWS_API_KEY = "874ba654bdcd4aa7b68f7367a907cc2f"
+
+# Alpha Vantage API Key
+ALPHA_VANTAGE_API_KEY = "9NBXSBBIYEBJHBIP" # Your provided API Key
 
 # --- Custom CSS and Font Loading ---
 def load_css(file_path):
@@ -56,7 +58,6 @@ def load_css(file_path):
     except FileNotFoundError:
         st.error(f"Error: CSS file not found at {file_path}. Please ensure 'assets/style.css' exists.")
 
-# Call CSS loading AFTER set_page_config
 st.markdown(
     "<link href='https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap' rel='stylesheet'>",
     unsafe_allow_html=True)
@@ -65,13 +66,24 @@ load_css("assets/style.css")
 
 # --- Common Data Loading & Feature Engineering Functions ---
 @st.cache_data(ttl=3600, show_spinner=False)  # Cache historical data for 1 hour
-def load_historical_data(stock_name, period="5y", retries=3, initial_delay=0.5):
+def load_historical_data(stock_name, period="5y", retries=5, initial_delay=1):
     """
-    Loads historical stock data from Yahoo Finance with retry logic.
-    Handles potential API blocking or invalid responses gracefully.
+    Loads historical stock data from Alpha Vantage with retry logic.
+    Alpha Vantage API provides daily data. 'period' is approximated by fetching 'full' outputsize.
     """
     if not stock_name:
         return pd.DataFrame()
+
+    # Alpha Vantage API endpoint for daily time series
+    # Using 'TIME_SERIES_DAILY_ADJUSTED' for adjusted close prices, etc.
+    # outputsize='full' gets up to 20 years of historical data.
+    base_url = "https://www.alphavantage.co/query"
+    params = {
+        "function": "TIME_SERIES_DAILY_ADJUSTED",
+        "symbol": stock_name,
+        "outputsize": "full", # 'full' for up to 20 years, 'compact' for 100 days
+        "apikey": ALPHA_VANTAGE_API_KEY
+    }
 
     for attempt in range(retries + 1):
         try:
@@ -79,31 +91,65 @@ def load_historical_data(stock_name, period="5y", retries=3, initial_delay=0.5):
                 sleep_time = initial_delay * (2 ** (attempt - 1))
                 print(f"Retrying historical data fetch for {stock_name} (attempt {attempt}/{retries}). Waiting {sleep_time:.1f} seconds...")
                 time.sleep(sleep_time)
+            else:
+                time.sleep(initial_delay) # Initial delay before first API call
 
-            stock = yf.Ticker(stock_name)
-            # Add a timeout to the history call for robustness
-            hist = stock.history(period=period, timeout=15)
+            response = requests.get(base_url, params=params, timeout=20) # Increased timeout
+            response.raise_for_status() # Raise an HTTPError for bad responses (4xx or 5xx)
+            data = response.json()
 
-            if hist.empty:
-                # If history is empty but no error, it might mean no data for ticker/period
-                if attempt == retries: # Only show error on last attempt if still empty
-                    st.error(f"❌ No historical data found for {stock_name}. This might be due to issues with the Yahoo Finance API, an invalid ticker, or the stock being delisted. Please try another symbol or check again later.")
-                continue # Continue to retry if not last attempt
+            # Check for API call limits or errors in the response
+            if "Error Message" in data:
+                error_msg = data["Error Message"]
+                print(f"Alpha Vantage API Error for {stock_name}: {error_msg}")
+                if "daily limit" in error_msg.lower() or "throttle" in error_msg.lower():
+                    st.warning(f"Alpha Vantage API daily limit reached for {stock_name}. Please try again later (max 25 calls/day for free tier).")
+                else:
+                    st.error(f"Alpha Vantage API error for {stock_name}: {error_msg}. Please check the ticker or API key.")
+                if attempt == retries:
+                    return pd.DataFrame()
+                continue # Retry if not last attempt
 
-            hist.reset_index(inplace=True)
-            hist['Date'] = pd.to_datetime(hist['Date']).dt.tz_localize(None) # Ensure no timezone for consistency
-            return hist # Data loaded successfully, return it
+            if "Time Series (Daily)" not in data:
+                print(f"No daily time series data found for {stock_name}. Response: {data}")
+                if attempt == retries:
+                    st.error(f"❌ No historical data found for {stock_name}. Please check the ticker symbol or the API response structure.")
+                continue # Retry if not last attempt
 
-        except Exception as e:
-            # Catch all exceptions during yfinance call, including JSONDecodeError from requests indirectly
-            print(f"Attempt {attempt}/{retries}: Failed to get historical data for {stock_name}. Error: {e}")
-            if "Expecting value: line 1 column 1" in str(e) or "429 Client Error: Too Many Requests" in str(e):
-                print(f"Likely Yahoo Finance API blocking/rate limiting for {stock_name}. Retrying...")
 
+            raw_data = data["Time Series (Daily)"]
+            df = pd.DataFrame.from_dict(raw_data, orient="index").astype(float)
+            df.index = pd.to_datetime(df.index)
+            df.columns = [col.split(". ")[1].replace(' ', '_').title() for col in df.columns] # Clean column names
+            df.rename(columns={'Adjusted_Close': 'Close', '1_Open': 'Open', '2_High': 'High', '3_Low': 'Low', '5_Volume': 'Volume'}, inplace=True) # Standardize
+            df.sort_index(inplace=True) # Sort by date ascending
+            df.reset_index(inplace=True)
+            df.rename(columns={'index': 'Date'}, inplace=True)
+            df['Date'] = df['Date'].dt.date # Keep only date part
+
+            if df.empty:
+                if attempt == retries:
+                    st.error(f"❌ No historical data found for {stock_name} after processing. Please check the ticker symbol.")
+                continue
+
+            return df
+
+        except requests.exceptions.RequestException as req_err:
+            print(f"Attempt {attempt}/{retries}: Network or API request error for {stock_name}: {req_err}")
             if attempt == retries:
-                st.error(f"⚠️ Failed to load historical data for {stock_name} after multiple attempts. This often happens with Yahoo Finance's unofficial API due to rate limits or bot detection. Please try again later or with a different symbol.")
-                return pd.DataFrame() # Return empty DataFrame on final failure
-    return pd.DataFrame() # Fallback return if loop finishes without returning
+                st.error(f"⚠️ Network error or API issue for {stock_name}. Please check your internet connection or try again later.")
+                return pd.DataFrame()
+        except json.JSONDecodeError as json_err:
+            print(f"Attempt {attempt}/{retries}: JSON Decode Error for {stock_name}: {json_err}. Response content starts with: {response.text[:200]}...")
+            if attempt == retries:
+                st.error(f"⚠️ Received invalid data from API for {stock_name}. Please try again later.")
+                return pd.DataFrame()
+        except Exception as e:
+            print(f"Attempt {attempt}/{retries}: An unexpected error occurred while fetching historical data for {stock_name}: {e}")
+            if attempt == retries:
+                st.error(f"⚠️ An unexpected error occurred while fetching historical data for {stock_name}. Please try again later.")
+                return pd.DataFrame()
+    return pd.DataFrame() # Fallback if all retries fail
 
 
 @st.cache_data(show_spinner=False)
@@ -217,7 +263,6 @@ def main():
         if hist_data_for_tabs.empty: # Check for empty DataFrame instead of None
             # Error message is already shown by load_historical_data
             st.session_state.analyze_triggered = False  # Reset trigger
-            # st.stop() # Uncomment if you want to stop further execution when no data
             return  # Exit function if no data
 
         with tab_summary:
@@ -227,15 +272,12 @@ def main():
             financials.display_financials(ticker_to_analyze)  # Call from financials module
 
         with tab_probabilistic:
-            # Pass the loaded historical data to the probabilistic module
             probabilistic_stock_model.display_probabilistic_models(hist_data_for_tabs)
 
         with tab_forecast:
-            # Pass the loaded historical data to the forecast module
             forecast_module.display_forecasting(hist_data_for_tabs)
 
         with tab_news:
-            # Pass the NEWS_API_KEY to the news_sentiment module's display function
             news_sentiment.display_news_sentiment(ticker_to_analyze, news_api_key=NEWS_API_KEY)
 
 
