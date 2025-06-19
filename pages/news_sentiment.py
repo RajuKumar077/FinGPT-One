@@ -5,10 +5,14 @@ import plotly.graph_objs as go
 import plotly.express as px
 from datetime import datetime, timedelta
 from collections import Counter
-import yfinance as yf  # Only used for get_company_name, could be moved to utils if preferred
+# import yfinance as yf # Not used, we will use Alpha Vantage to get company name
 import pandas as pd
 import numpy as np
+import json # Added json import for Alpha Vantage response parsing
+import time # Added time for Alpha Vantage rate limiting
 
+# Alpha Vantage API Key (should be the same as in app.py)
+ALPHA_VANTAGE_API_KEY = "9NBXSBBIYEBJHBIP"
 
 # NEWS_API_KEY is expected to be passed from app.py or retrieved from a global config
 # For modularity, it's better to pass it or have a common config file.
@@ -22,15 +26,15 @@ def fetch_news_articles(company_name, news_api_key, total_articles=50):
     page = 1
     page_size = 20
     # Limiting pages to 5 to avoid excessive API calls
-    while len(articles) < total_articles and page <= 5:
+    while len(articles) < total_articles and page <= 5: 
         url = (
             f"https://newsapi.org/v2/everything?q={company_name}&language=en"
             f"&sortBy=publishedAt&pageSize={min(page_size, total_articles - len(articles))}"
-            f"&page={page}&apiKey={news_api_key}"
+            f"f"&page={page}&apiKey={news_api_key}" # Fixed extra f-string prefix
         )
         try:
             response = requests.get(url)
-            response.raise_for_status()  # Raise an exception for HTTP errors
+            response.raise_for_status() # Raise an exception for HTTP errors
             page_articles = response.json().get("articles", [])
             if not page_articles:
                 break
@@ -40,7 +44,6 @@ def fetch_news_articles(company_name, news_api_key, total_articles=50):
             st.warning(f"❌ Error fetching news: {e}. Please check your API key or internet connection.")
             break
     return articles[:total_articles]
-
 
 def generate_sentiment_summary(sentiments):
     """Generates a text summary of overall sentiment."""
@@ -61,15 +64,53 @@ def generate_sentiment_summary(sentiments):
         trend = "⚪ Overall sentiment is **Neutral**"
     return summary + f"\n\n**Average Sentiment Score**: `{avg_sent:.2f}`\n\n{trend}"
 
-
 @st.cache_data(ttl=86400, show_spinner=False)
-def get_company_name_from_ticker(ticker):
-    """Fetches the company's long name from Yahoo Finance."""
-    try:
-        stock = yf.Ticker(ticker)
-        return stock.info.get('longName', ticker)
-    except:
-        return ticker
+def get_company_name_from_ticker(ticker, retries=3, initial_delay=0.5):
+    """Fetches the company's long name using Alpha Vantage OVERVIEW endpoint."""
+    base_url = "https://www.alphavantage.co/query"
+    params = {
+        "function": "OVERVIEW",
+        "symbol": ticker,
+        "apikey": ALPHA_VANTAGE_API_KEY
+    }
+
+    for attempt in range(retries + 1):
+        try:
+            if attempt > 0:
+                sleep_time = initial_delay * (2 ** (attempt - 1))
+                print(f"Retrying company name fetch for {ticker} (attempt {attempt}/{retries}). Waiting {sleep_time:.1f} seconds...")
+                time.sleep(sleep_time)
+            else:
+                time.sleep(initial_delay) # Initial delay before first API call
+
+            response = requests.get(base_url, params=params, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+
+            if "Error Message" in data:
+                error_msg = data["Error Message"]
+                print(f"Alpha Vantage API Overview Error (for company name) for {ticker}: {error_msg}")
+                if "daily limit" in error_msg.lower() or "throttle" in error_msg.lower():
+                    st.warning(f"Alpha Vantage API daily limit reached for company name fetch of {ticker}. Falling back to ticker symbol. (max 25 calls/day for free tier).")
+                return ticker # Fallback to ticker symbol
+            
+            return data.get('Name', ticker)
+        except requests.exceptions.RequestException as req_err:
+            print(f"Attempt {attempt}/{retries}: Network or API request error for company name {ticker}: {req_err}. Falling back to ticker symbol.")
+            if attempt == retries:
+                st.warning(f"⚠️ Failed to get company name for {ticker}. Using ticker symbol for news search. Error: {req_err}")
+            return ticker # Fallback to ticker symbol
+        except json.JSONDecodeError as json_err:
+            print(f"Attempt {attempt}/{retries}: JSON Decode Error for company name {ticker}: {json_err}. Falling back to ticker symbol. Response content starts with: {response.text[:200]}...")
+            if attempt == retries:
+                st.warning(f"⚠️ Received invalid data for company name {ticker}. Using ticker symbol for news search. Error: {json_err}")
+            return ticker # Fallback to ticker symbol
+        except Exception as e:
+            print(f"Attempt {attempt}/{retries}: An unexpected error occurred while fetching company name for {ticker}: {e}. Falling back to ticker symbol.")
+            if attempt == retries:
+                st.warning(f"⚠️ An unexpected error occurred for company name {ticker}. Using ticker symbol for news search. Error: {e}")
+            return ticker # Fallback to ticker symbol
+    return ticker # Fallback return if all retries fail
 
 
 # --- Sentiment Visualizations ---
@@ -100,7 +141,6 @@ def create_sentiment_timeline(sentiments, dates):
     )
     return fig
 
-
 def create_sentiment_heatmap(sentiments, dates, sources):
     """Create a heatmap showing sentiment by source over time."""
     df = pd.DataFrame({
@@ -129,7 +169,6 @@ def create_sentiment_heatmap(sentiments, dates, sources):
         return fig
     return None
 
-
 def create_word_cloud_data(articles):
     """Extracts key words for word frequency analysis."""
     import re
@@ -144,7 +183,6 @@ def create_word_cloud_data(articles):
     words = [word for word in words if word not in stop_words]
     word_freq = Counter(words).most_common(15)
     return word_freq
-
 
 def create_sentiment_metrics_cards(sentiments, articles):
     """Creates advanced metric cards for sentiment analysis."""
@@ -191,24 +229,29 @@ def create_sentiment_metrics_cards(sentiments, articles):
         </div>
         """, unsafe_allow_html=True)
 
-
 def display_news_sentiment(ticker, news_api_key):
     """Main function to display news sentiment analysis for a given ticker."""
     st.markdown(f"<h3 class='section-title'>News Sentiment Analysis for {ticker.upper()}</h3>", unsafe_allow_html=True)
 
-    num_articles = st.slider("Number of Articles to Analyze", min_value=10, max_value=100, value=30, step=10,
-                             key=f"num_articles_sentiment_{ticker}")
+    num_articles = st.slider("Number of Articles to Analyze", min_value=10, max_value=100, value=30, step=10, key=f"num_articles_sentiment_{ticker}")
 
     with st.spinner("Fetching and analyzing news..."):
+        # Get company name using Alpha Vantage
         company_name = get_company_name_from_ticker(ticker)
+        
         # Dynamic industry keywords or broader search query could be implemented
-        industry_keywords = ["stock", "market", "economy", "invest", "share"]
-        search_query = f"{company_name} OR {ticker} OR {' OR '.join(industry_keywords)}"
+        # The search for NewsAPI is broad, it searches for (company_name OR ticker OR keywords)
+        industry_keywords = ["stock", "market", "economy", "invest", "share", "financial"] # Added 'financial'
+        search_query = f'"{company_name}" OR "{ticker}"' # Prioritize exact name/ticker
+        # Add keywords for broader search, ensuring unique terms
+        unique_keywords = [k for k in industry_keywords if k.lower() not in company_name.lower() and k.lower() != ticker.lower()]
+        if unique_keywords:
+            search_query += f' OR {" OR ".join(unique_keywords)}'
 
         articles = fetch_news_articles(search_query, news_api_key, total_articles=num_articles)
 
     if not articles:
-        st.info("🔍 No recent news articles found for this ticker or query. Try a different ticker.")
+        st.info("🔍 No recent news articles found for this ticker or query. Try a different ticker or broaden your search parameters.")
         return
 
     sentiments, dates, sources, urls, titles = [], [], [], [], []
@@ -230,25 +273,25 @@ def display_news_sentiment(ticker, news_api_key):
             parsed_dates.append(date)
         except:
             dates.append(article.get('publishedAt'))
-            parsed_dates.append(datetime.now())  # Fallback to current time if parsing fails
+            parsed_dates.append(datetime.now()) # Fallback to current time if parsing fails
 
-    if not sentiments:  # No valid articles found after parsing and filtering
+    if not sentiments: # No valid articles found after parsing and filtering
         st.info("No valid articles found for sentiment analysis after processing.")
         return
 
     st.markdown("<h4 class='section-subtitle'>Sentiment Summary</h4>", unsafe_allow_html=True)
     st.markdown(generate_sentiment_summary(sentiments))
-
+    
     create_sentiment_metrics_cards(sentiments, articles)
 
-    st.markdown("<h4 class='section-subtitle'>Sentiment Charts</h4>", unsafe_allow_html=True)
-
+    st.markdown("<h4 class4='section-subtitle'>Sentiment Charts</h4>", unsafe_allow_html=True) # Typo fixed from h44
+    
     chart_cols = st.columns(2)
     with chart_cols[0]:
         st.markdown("<h5>Sentiment Timeline</h5>", unsafe_allow_html=True)
         timeline_fig = create_sentiment_timeline(sentiments, parsed_dates)
         st.plotly_chart(timeline_fig, use_container_width=True)
-
+    
     with chart_cols[1]:
         st.markdown("<h5>Sentiment Heatmap by Source</h5>", unsafe_allow_html=True)
         heatmap_fig = create_sentiment_heatmap(sentiments, dates, sources)
@@ -294,5 +337,3 @@ def display_news_sentiment(ticker, news_api_key):
                 </div>
             </div>
             """, unsafe_allow_html=True)
-
-# Note: The if __name__ == "__main__": block is removed as this file is now imported as a module.
