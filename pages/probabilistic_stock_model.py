@@ -1,5 +1,4 @@
 import streamlit as st
-# import yfinance as yf # Not directly used for data fetching, data is passed as hist_data
 import pandas as pd
 import numpy as np
 from sklearn.calibration import CalibratedClassifierCV
@@ -344,7 +343,7 @@ def display_probabilistic_models(hist_data):
             st.pyplot(lgbm_shap_plot)
     with shap_cols[1]:
         # Fix: Pass the Calibrated Random Forest model itself to KernelExplainer for SHAP.
-        # Use a small subset (e.g., 100 samples) as background data for performance with KernelExplainer.
+        # Use a small subset (e.g., 100 samples) as background data for KernelExplainer for performance.
         if rf_calibrated_model is not None and not X_test_ml.empty:
             rf_shap_plot = explain_with_shap(rf_calibrated_model,
                                              X_test_ml.sample(min(200, len(X_test_ml)), random_state=42), "kernel")
