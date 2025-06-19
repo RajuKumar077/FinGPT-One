@@ -1,72 +1,74 @@
 import requests
 import time
-import yfinance as yf # Add yfinance import here as it's used in app.py's load_historical_data
-import json # Import json for explicit parsing
+import json
+import streamlit as st
 
-def fetch_yahoo_suggestions(query, retries=5, initial_delay=0.75): # Increased retries and initial_delay
+# Alpha Vantage API Key
+ALPHA_VANTAGE_API_KEY = "9NBXSBBIYEBJHBIP"
+
+def fetch_yahoo_suggestions(query, retries=3, initial_delay=0.75):
     """
-    Fetch stock ticker suggestions from Yahoo Finance's unofficial API.
-    Supports Indian stocks (e.g., NALCO.NS) and global stocks.
-    Includes robust retry logic for improved resilience against transient API issues.
+    Fetch stock ticker suggestions using Alpha Vantage's Search Endpoint.
+    This API is more reliable than Yahoo Finance's unofficial one.
     """
     if not query:
         return []
 
-    url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query}&quotesCount=10&newsCount=0"
-
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    base_url = "https://www.alphavantage.co/query"
+    params = {
+        "function": "SYMBOL_SEARCH",
+        "keywords": query,
+        "apikey": ALPHA_VANTAGE_API_KEY
     }
 
-    for attempt in range(retries + 1): # Try original attempt + 'retries' number of extra attempts
+    for attempt in range(retries + 1):
         try:
-            # Respectful delay before each attempt to avoid rate limiting
             if attempt > 0:
-                # Exponential backoff: delay doubles with each retry
                 sleep_time = initial_delay * (2 ** (attempt - 1))
-                print(f"Retrying Yahoo suggestion fetch (attempt {attempt}/{retries}). Waiting {sleep_time:.2f} seconds...")
+                print(f"Retrying Alpha Vantage symbol search (attempt {attempt}/{retries}). Waiting {sleep_time:.2f} seconds...")
                 time.sleep(sleep_time)
             else:
-                # Initial delay for the first attempt
-                time.sleep(initial_delay)
+                time.sleep(initial_delay) # Initial delay before first API call
 
-            response = requests.get(url, headers=headers, timeout=15) # Increased timeout
+            response = requests.get(base_url, params=params, timeout=15) # Increased timeout
             response.raise_for_status() # Raise an HTTPError for bad responses (4xx or 5xx)
+            data = response.json()
 
-            data = response.json() # Attempt JSON parsing
-            
-            # If we reach here, the request was successful and JSON was parsed.
-            results = data.get("quotes", [])
+            # Check for API call limits or errors in the response
+            if "Error Message" in data:
+                error_msg = data["Error Message"]
+                print(f"Alpha Vantage API Search Error: {error_msg}")
+                if "daily limit" in error_msg.lower() or "throttle" in error_msg.lower():
+                    st.warning(f"Alpha Vantage API daily limit reached for symbol search. Please try again later (max 25 calls/day for free tier).")
+                else:
+                    st.error(f"Alpha Vantage API search error: {error_msg}. Please check query or API key.")
+                if attempt == retries:
+                    return []
+                continue # Retry if not last attempt
+
+            best_matches = data.get("bestMatches", [])
             suggestions = []
-            for item in results:
-                symbol = item.get("symbol")
-                shortname = item.get("shortname", "")
-                exch_disp = item.get("exchDisp", "")
-                if symbol and shortname:
-                    suggestions.append(f"{symbol} - {shortname} ({exch_disp})")
+            for item in best_matches:
+                symbol = item.get("1. symbol")
+                name = item.get("2. name", "")
+                region = item.get("4. region", "")
+                if symbol and name:
+                    suggestions.append(f"{symbol} - {name} ({region})")
             return suggestions
 
+        except requests.exceptions.RequestException as req_err:
+            print(f"Attempt {attempt}/{retries}: Network or API request error for symbol search: {req_err}")
+            if attempt == retries:
+                st.error(f"⚠️ Network error or API issue during symbol search. Please check your internet connection or try again later.")
+                return []
         except json.JSONDecodeError as json_err:
-            print(f"Attempt {attempt}/{retries}: JSON Decode Error: {json_err} - Response content starts with: {response.text[:200]}...")
-            if attempt == retries: # If this was the last attempt
-                print("Max retries reached for JSON decode error.")
-                return []
-        except requests.exceptions.Timeout:
-            print(f"Attempt {attempt}/{retries}: Request timed out when fetching Yahoo suggestions.")
+            print(f"Attempt {attempt}/{retries}: JSON Decode Error for symbol search: {json_err}. Response content starts with: {response.text[:200]}...")
             if attempt == retries:
-                return []
-        except requests.exceptions.ConnectionError as conn_err:
-            print(f"Attempt {attempt}/{retries}: Connection Error when fetching Yahoo suggestions: {conn_err}")
-            if attempt == retries:
-                return []
-        except requests.exceptions.HTTPError as http_err:
-            print(f"Attempt {attempt}/{retries}: HTTP Error {response.status_code} when fetching Yahoo suggestions: {http_err}")
-            if response.status_code == 429: # Explicitly check for rate limit
-                print("Rate limited by Yahoo Finance. Automatically retrying...")
-            if attempt == retries:
+                st.error(f"⚠️ Received invalid data from API during symbol search. Please try again later.")
                 return []
         except Exception as e:
-            print(f"Attempt {attempt}/{retries}: An unexpected error occurred while fetching Yahoo suggestions: {e}")
+            print(f"Attempt {attempt}/{retries}: An unexpected error occurred during symbol search: {e}")
             if attempt == retries:
+                st.error(f"⚠️ An unexpected error occurred during symbol search. Please try again later.")
                 return []
-    return [] # Should not be reached if retries are exhausted and error occurs, but as a fallback
+    return [] # Fallback if all retries fail
