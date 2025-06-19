@@ -1,105 +1,146 @@
 import streamlit as st
-import yfinance as yf
 import pandas as pd
-import plotly.graph_objs as go
-import time  # Import time for delays
+import requests
+import json
+import time
 
+# Alpha Vantage API Key
+ALPHA_VANTAGE_API_KEY = "9NBXSBBIYEBJHBIP"
 
-def display_financials(ticker):
-    """Displays company's financial statements (Income, Balance, Cash Flow) and key ratios."""
-    st.markdown(f"<h3 class='section-title'>Financial Statements for {ticker.upper()}</h3>", unsafe_allow_html=True)
-
-    view_option = st.radio("Select Period", ["Annual", "Quarterly"], horizontal=True, key=f"financial_period_{ticker}")
-
-    stock = yf.Ticker(ticker)
-    # Increased delay to 3 seconds to more aggressively mitigate 401 errors
-    time.sleep(3)
-
-    # Fetch financial data based on selected period
-    @st.cache_data(ttl=86400, show_spinner=False)  # Cache financial data
-    def get_data(period_type, current_ticker):  # Add current_ticker to cache key
-        # Use a fresh Ticker instance inside the cached function if possible, or ensure it's passed
-        # For simplicity, using the 'stock' object from outer scope, assuming it's stable.
-        # If issues persist, consider creating yf.Ticker(current_ticker) inside this cached function.
-        # However, to avoid passing 'stock' object (which might cause caching issues if not hashable)
-        # and to ensure a fresh fetch within the cached function, let's instantiate yf.Ticker here.
-        local_stock_instance = yf.Ticker(current_ticker)
-        time.sleep(1)  # Add a small delay for this specific fetch inside the cached function
-        if period_type == "Annual":
-            income_data = local_stock_instance.financials.T
-            balance_data = local_stock_instance.balance_sheet.T
-            cashflow_data = local_stock_instance.cashflow.T
-        else:  # Quarterly
-            income_data = local_stock_instance.quarterly_financials.T
-            balance_data = local_stock_instance.quarterly_balance_sheet.T
-            cashflow_data = local_stock_instance.quarterly_cashflow.T
-
-        # Ensure timezone-naive for consistency if the index is DatetimeIndex and has timezone info
-        for df_data in [income_data, balance_data, cashflow_data]:
-            # Only attempt to localize if the index is a DatetimeIndex and has timezone info
-            if not df_data.empty and isinstance(df_data.index, pd.DatetimeIndex) and df_data.index.tz is not None:
-                df_data.index = df_data.index.tz_localize(None)
-        return income_data, balance_data, cashflow_data
-
-    # Pass ticker to get_data function to ensure cache invalidation when ticker changes
-    income_data, balance_data, cashflow_data = get_data(view_option, ticker)
-
-    if income_data.empty and balance_data.empty and cashflow_data.empty:
-        st.info("Financial data not available for this ticker or period.")
-        return
-
-    st.markdown("<h4>Income Statement</h4>", unsafe_allow_html=True)
-    st.dataframe(income_data)
-
-    st.markdown("<h4>Balance Sheet</h4>", unsafe_allow_html=True)
-    st.dataframe(balance_data)
-
-    st.markdown("<h4>Cash Flow</h4>", unsafe_allow_html=True)
-    st.dataframe(cashflow_data)
-
-    st.markdown("<h4>Key Financial Ratios</h4>", unsafe_allow_html=True)
-
-    # Fetch stock info specifically for ratios, ensuring it's also within a robust block
-    try:
-        # Use a fresh Ticker instance here as well, with a delay
-        info_stock_instance = yf.Ticker(ticker)
-        time.sleep(1)  # Delay before fetching info
-        info = info_stock_instance.info
-    except Exception as e:
-        st.error(f"Could not fetch key financial ratios for {ticker}: {e}")
-        info = {}  # Provide an empty dict if info fetching fails
-
-    ratios = {
-        "Gross Margin": info.get("grossMargins"),
-        "Operating Margin": info.get("operatingMargins"),
-        "ROE": info.get("returnOnEquity"),
-        "ROA": info.get("returnOnAssets"),
-        "Debt to Equity": info.get("debtToEquity"),
-        "Current Ratio": info.get("currentRatio"),
-        "Free Cash Flow (TTM)": info.get("freeCashflow")
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_financial_statements_data(ticker_symbol, statement_type, retries=3, initial_delay=1):
+    """
+    Fetches financial statements (Income Statement, Balance Sheet, Cash Flow)
+    from Alpha Vantage for a given ticker and statement type.
+    """
+    function_map = {
+        "Income Statement": "INCOME_STATEMENT",
+        "Balance Sheet": "BALANCE_SHEET",
+        "Cash Flow": "CASH_FLOW"
     }
-    ratios_df = pd.DataFrame(ratios.items(), columns=["Metric", "Value"])
-    # Format ratio values
-    ratios_df['Value'] = ratios_df['Value'].apply(
-        lambda x: f"{x * 100:.2f}%" if isinstance(x, (float, int)) and x <= 1 else f"{x:,.2f}" if isinstance(x, (float,
-                                                                                                                 int)) else 'N/A')
-    st.table(ratios_df)
+    
+    alpha_vantage_function = function_map.get(statement_type)
+    if not alpha_vantage_function:
+        st.error(f"Invalid statement type: {statement_type}")
+        return None
 
-    try:
-        if not income_data.empty and 'Total Revenue' in income_data.columns and 'Net Income' in income_data.columns:
-            st.markdown("<h4>Revenue & Net Income Trend</h4>", unsafe_allow_html=True)
-            fig = go.Figure()
-            fig.add_trace(
-                go.Scatter(x=income_data.index, y=income_data['Total Revenue'], name='Revenue', mode='lines+markers'))
-            fig.add_trace(
-                go.Scatter(x=income_data.index, y=income_data['Net Income'], name='Net Income', mode='lines+markers'))
-            fig.update_layout(template='plotly_dark', title="Revenue & Net Income Over Time",
-                              xaxis_title="Date", yaxis_title="Amount",
-                              font=dict(family="Inter", size=12, color="#E0E0E0"))
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("Revenue or Net Income data not available for chart.")
-    except Exception as e:
-        st.info(f"Could not generate Revenue & Net Income chart: {e}")
+    base_url = "https://www.alphavantage.co/query"
+    params = {
+        "function": alpha_vantage_function,
+        "symbol": ticker_symbol,
+        "apikey": ALPHA_VANTAGE_API_KEY
+    }
 
-# Note: The if __name__ == "__main__": block is removed as this file is now imported as a module.
+    for attempt in range(retries + 1):
+        try:
+            if attempt > 0:
+                sleep_time = initial_delay * (2 ** (attempt - 1))
+                print(f"Retrying {statement_type} fetch for {ticker_symbol} (attempt {attempt}/{retries}). Waiting {sleep_time:.1f} seconds...")
+                time.sleep(sleep_time)
+            else:
+                time.sleep(initial_delay) # Initial delay before first API call
+
+            response = requests.get(base_url, params=params, timeout=15)
+            response.raise_for_status()
+            data = response.json()
+
+            if "Error Message" in data:
+                error_msg = data["Error Message"]
+                print(f"Alpha Vantage API {statement_type} Error for {ticker_symbol}: {error_msg}")
+                if "daily limit" in error_msg.lower() or "throttle" in error_msg.lower():
+                    st.warning(f"Alpha Vantage API daily limit reached for {statement_type} of {ticker_symbol}. Please try again later (max 25 calls/day for free tier).")
+                else:
+                    st.error(f"Alpha Vantage API {statement_type} error for {ticker_symbol}: {error_msg}. Please check the ticker or API key.")
+                if attempt == retries:
+                    return None
+                continue
+
+            # Alpha Vantage returns statements in lists under specific keys
+            reports_key_map = {
+                "Income Statement": ["annualReports", "quarterlyReports"],
+                "Balance Sheet": ["annualReports", "quarterlyReports"],
+                "Cash Flow": ["annualReports", "quarterlyReports"]
+            }
+            
+            annual_reports = data.get(reports_key_map[statement_type][0], [])
+            quarterly_reports = data.get(reports_key_map[statement_type][1], [])
+
+            if not annual_reports and not quarterly_reports:
+                print(f"No {statement_type} data found for {ticker_symbol}.")
+                if attempt == retries:
+                    st.info(f"No {statement_type} data found for {ticker_symbol}. Data might be unavailable or API limit reached.")
+                return None
+            
+            return annual_reports, quarterly_reports
+
+        except requests.exceptions.RequestException as req_err:
+            print(f"Attempt {attempt}/{retries}: Network or API request error for {statement_type} {ticker_symbol}: {req_err}")
+            if attempt == retries:
+                st.error(f"⚠️ Network error or API issue for {statement_type} of {ticker_symbol}. Please check your internet connection or try again later.")
+                return None
+        except json.JSONDecodeError as json_err:
+            print(f"Attempt {attempt}/{retries}: JSON Decode Error for {statement_type} {ticker_symbol}: {json_err}. Response content starts with: {response.text[:200]}...")
+            if attempt == retries:
+                st.error(f"⚠️ Received invalid data from API for {statement_type} of {ticker_symbol}. Please try again later.")
+                return None
+        except Exception as e:
+            print(f"Attempt {attempt}/{retries}: An unexpected error occurred while fetching {statement_type} for {ticker_symbol}: {e}")
+            if attempt == retries:
+                st.error(f"⚠️ An unexpected error occurred while fetching {statement_type} for {ticker_symbol}. Please try again later.")
+                return None
+    return None # Fallback if all retries fail
+
+
+def display_financials(ticker_symbol):
+    st.subheader(f"Financial Statements for {ticker_symbol.upper()}")
+
+    st.markdown("---")
+    st.markdown("#### Income Statement")
+    income_annual, income_quarterly = get_financial_statements_data(ticker_symbol, "Income Statement")
+    if income_annual:
+        st.markdown("##### Annual")
+        df_annual_income = pd.DataFrame(income_annual).set_index('fiscalDateEnding')
+        st.dataframe(df_annual_income.T)
+    else:
+        st.info("No annual income statement data available.")
+
+    if income_quarterly:
+        st.markdown("##### Quarterly")
+        df_quarterly_income = pd.DataFrame(income_quarterly).set_index('fiscalDateEnding')
+        st.dataframe(df_quarterly_income.T)
+    else:
+        st.info("No quarterly income statement data available.")
+
+    st.markdown("---")
+    st.markdown("#### Balance Sheet")
+    balance_annual, balance_quarterly = get_financial_statements_data(ticker_symbol, "Balance Sheet")
+    if balance_annual:
+        st.markdown("##### Annual")
+        df_annual_balance = pd.DataFrame(balance_annual).set_index('fiscalDateEnding')
+        st.dataframe(df_annual_balance.T)
+    else:
+        st.info("No annual balance sheet data available.")
+
+    if balance_quarterly:
+        st.markdown("##### Quarterly")
+        df_quarterly_balance = pd.DataFrame(balance_quarterly).set_index('fiscalDateEnding')
+        st.dataframe(df_quarterly_balance.T)
+    else:
+        st.info("No quarterly balance sheet data available.")
+
+    st.markdown("---")
+    st.markdown("#### Cash Flow Statement")
+    cashflow_annual, cashflow_quarterly = get_financial_statements_data(ticker_symbol, "Cash Flow")
+    if cashflow_annual:
+        st.markdown("##### Annual")
+        df_annual_cashflow = pd.DataFrame(cashflow_annual).set_index('fiscalDateEnding')
+        st.dataframe(df_annual_cashflow.T)
+    else:
+        st.info("No annual cash flow statement data available.")
+
+    if cashflow_quarterly:
+        st.markdown("##### Quarterly")
+        df_quarterly_cashflow = pd.DataFrame(cashflow_quarterly).set_index('fiscalDateEnding')
+        st.dataframe(df_quarterly_cashflow.T)
+    else:
+        st.info("No quarterly cash flow statement data available.")
