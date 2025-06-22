@@ -34,7 +34,7 @@ def fetch_yahoo_suggestions(query, retries=3, initial_delay=0.75):
             response.raise_for_status() # Raise an HTTPError for bad responses (4xx or 5xx)
             data = response.json()
 
-            # Check for API call limits or errors in the response
+            # --- Check for Alpha Vantage specific error messages ---
             if "Error Message" in data:
                 error_msg = data["Error Message"]
                 print(f"Alpha Vantage API Search Error: {error_msg}")
@@ -45,6 +45,12 @@ def fetch_yahoo_suggestions(query, retries=3, initial_delay=0.75):
                 if attempt == retries:
                     return []
                 continue # Retry if not last attempt
+            elif "Information" in data and "premium endpoint" in data["Information"].lower():
+                st.error(f"🚨 **Alpha Vantage API Key Error:** The symbol search endpoint is now premium. "
+                         f"Please upgrade your Alpha Vantage API key to a premium plan to enable autocomplete suggestions. "
+                         f"Details: {data['Information']}")
+                return [] # Stop retrying if it's a premium endpoint error
+
 
             best_matches = data.get("bestMatches", [])
             suggestions = []
