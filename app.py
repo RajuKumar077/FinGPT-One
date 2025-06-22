@@ -3,11 +3,12 @@ import pandas as pd
 import numpy as np
 import warnings
 import time
-import requests # Import requests for Alpha Vantage API calls
+import requests # Import requests for API calls
 import json # Import json for parsing API responses
 
 # Import functions from your separate modules
-import pages.yahoo_autocomplete as yahoo_autocomplete
+# Renamed yahoo_autocomplete to fmp_autocomplete to reflect the new API
+import pages.fmp_autocomplete as fmp_autocomplete
 import pages.stock_summary as stock_summary
 import pages.financials as financials
 import pages.probabilistic_stock_model as probabilistic_stock_model
@@ -46,8 +47,8 @@ st.markdown("""
 # NewsAPI.com API Key - IMPORTANT: Replace with your actual key
 NEWS_API_KEY = "874ba654bdcd4aa7b68f7367a907cc2f"
 
-# Alpha Vantage API Key
-ALPHA_VANTAGE_API_KEY = "9NBXSBBIYEBJHBIP" # Your provided API Key
+# Financial Modeling Prep API Key - IMPORTANT: Get your free key from https://financialmodelingprep.com/developer/docs
+FMP_API_KEY = "5C9DnMCAzYam2ZPjNpOxKLFxUiGhrJDD" # Your FMP API Key
 
 # --- Custom CSS and Font Loading ---
 def load_css(file_path):
@@ -66,30 +67,25 @@ load_css("assets/style.css")
 
 # --- Common Data Loading & Feature Engineering Functions ---
 @st.cache_data(ttl=3600, show_spinner=False)  # Cache historical data for 1 hour
-def load_historical_data(stock_name, period="5y", retries=5, initial_delay=1):
+def load_historical_data(ticker_symbol, retries=5, initial_delay=0.75):
     """
-    Loads historical stock data from Alpha Vantage with retry logic.
-    Alpha Vantage API provides daily data. 'period' is approximated by fetching 'full' outputsize.
+    Loads historical stock data from Financial Modeling Prep (FMP) with retry logic.
+    FMP provides daily data.
     """
-    if not stock_name:
+    if not ticker_symbol:
         return pd.DataFrame()
 
-    # Alpha Vantage API endpoint for daily time series
-    # Using 'TIME_SERIES_DAILY_ADJUSTED' for adjusted close prices, etc.
-    # outputsize='full' gets up to 20 years of historical data.
-    base_url = "https://www.alphavantage.co/query"
+    # FMP API endpoint for historical daily prices
+    base_url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{ticker_symbol}"
     params = {
-        "function": "TIME_SERIES_DAILY_ADJUSTED",
-        "symbol": stock_name,
-        "outputsize": "full", # 'full' for up to 20 years, 'compact' for 100 days
-        "apikey": ALPHA_VANTAGE_API_KEY
+        "apikey": FMP_API_KEY
     }
 
     for attempt in range(retries + 1):
         try:
             if attempt > 0:
                 sleep_time = initial_delay * (2 ** (attempt - 1))
-                print(f"Retrying historical data fetch for {stock_name} (attempt {attempt}/{retries}). Waiting {sleep_time:.1f} seconds...")
+                print(f"Retrying historical data fetch for {ticker_symbol} (attempt {attempt}/{retries}). Waiting {sleep_time:.1f} seconds...")
                 time.sleep(sleep_time)
             else:
                 time.sleep(initial_delay) # Initial delay before first API call
@@ -98,56 +94,63 @@ def load_historical_data(stock_name, period="5y", retries=5, initial_delay=1):
             response.raise_for_status() # Raise an HTTPError for bad responses (4xx or 5xx)
             data = response.json()
 
-            # Check for API call limits or errors in the response
-            if "Error Message" in data:
-                error_msg = data["Error Message"]
-                print(f"Alpha Vantage API Error for {stock_name}: {error_msg}")
-                if "daily limit" in error_msg.lower() or "throttle" in error_msg.lower():
-                    st.warning(f"Alpha Vantage API daily limit reached for {stock_name}. Please try again later (max 25 calls/day for free tier).")
+            # FMP returns data in 'historical' key
+            if "historical" not in data or not data["historical"]:
+                print(f"No historical data found for {ticker_symbol}. Response: {data}")
+                if "Error Message" in data: # Check for FMP-specific error messages
+                    st.error(f"❌ FMP API Error for {ticker_symbol}: {data['Error Message']}. Please check the ticker symbol or API key.")
+                elif "limit" in str(data).lower(): # Generic check for rate limit messages
+                     st.warning(f"⚠️ FMP API rate limit might be hit for {ticker_symbol}. Please wait and try again or check your API key usage.")
                 else:
-                    st.error(f"Alpha Vantage API error for {stock_name}: {error_msg}. Please check the ticker or API key.")
+                    st.error(f"❌ No historical data found for {ticker_symbol}. Please check the ticker symbol or the API response structure.")
                 if attempt == retries:
                     return pd.DataFrame()
                 continue # Retry if not last attempt
 
-            if "Time Series (Daily)" not in data:
-                print(f"No daily time series data found for {stock_name}. Response: {data}")
-                if attempt == retries:
-                    st.error(f"❌ No historical data found for {stock_name}. Please check the ticker symbol or the API response structure.")
-                continue # Retry if not last attempt
+            # Convert to DataFrame
+            df = pd.DataFrame(data["historical"])
+            df['date'] = pd.to_datetime(df['date'])
+            df.rename(columns={
+                'date': 'Date',
+                'open': 'Open',
+                'high': 'High',
+                'low': 'Low',
+                'close': 'Close',
+                'volume': 'Volume',
+                'adjClose': 'Adjusted_Close' # FMP often provides adjClose directly
+            }, inplace=True)
 
+            # Ensure expected columns are present
+            required_cols = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
+            if not all(col in df.columns for col in required_cols):
+                st.error(f"Missing required columns in FMP historical data for {ticker_symbol}.")
+                return pd.DataFrame()
 
-            raw_data = data["Time Series (Daily)"]
-            df = pd.DataFrame.from_dict(raw_data, orient="index").astype(float)
-            df.index = pd.to_datetime(df.index)
-            df.columns = [col.split(". ")[1].replace(' ', '_').title() for col in df.columns] # Clean column names
-            df.rename(columns={'Adjusted_Close': 'Close', '1_Open': 'Open', '2_High': 'High', '3_Low': 'Low', '5_Volume': 'Volume'}, inplace=True) # Standardize
-            df.sort_index(inplace=True) # Sort by date ascending
-            df.reset_index(inplace=True)
-            df.rename(columns={'index': 'Date'}, inplace=True)
+            df.sort_values(by='Date', ascending=True, inplace=True)
+            df.reset_index(drop=True, inplace=True)
             df['Date'] = df['Date'].dt.date # Keep only date part
 
             if df.empty:
                 if attempt == retries:
-                    st.error(f"❌ No historical data found for {stock_name} after processing. Please check the ticker symbol.")
+                    st.error(f"❌ No historical data found for {ticker_symbol} after processing. Please check the ticker symbol.")
                 continue
 
             return df
 
         except requests.exceptions.RequestException as req_err:
-            print(f"Attempt {attempt}/{retries}: Network or API request error for {stock_name}: {req_err}")
+            print(f"Attempt {attempt}/{retries}: Network or API request error for {ticker_symbol}: {req_err}")
             if attempt == retries:
-                st.error(f"⚠️ Network error or API issue for {stock_name}. Please check your internet connection or try again later.")
+                st.error(f"⚠️ Network error or API issue for {ticker_symbol}. Please check your internet connection or try again later.")
                 return pd.DataFrame()
         except json.JSONDecodeError as json_err:
-            print(f"Attempt {attempt}/{retries}: JSON Decode Error for {stock_name}: {json_err}. Response content starts with: {response.text[:200]}...")
+            print(f"Attempt {attempt}/{retries}: JSON Decode Error for {ticker_symbol}: {json_err}. Response content starts with: {response.text[:200]}...")
             if attempt == retries:
-                st.error(f"⚠️ Received invalid data from API for {stock_name}. Please try again later.")
+                st.error(f"⚠️ Received invalid data from API for {ticker_symbol}. Please try again later.")
                 return pd.DataFrame()
         except Exception as e:
-            print(f"Attempt {attempt}/{retries}: An unexpected error occurred while fetching historical data for {stock_name}: {e}")
+            print(f"Attempt {attempt}/{retries}: An unexpected error occurred while fetching historical data for {ticker_symbol}: {e}")
             if attempt == retries:
-                st.error(f"⚠️ An unexpected error occurred while fetching historical data for {stock_name}. Please try again later.")
+                st.error(f"⚠️ An unexpected error occurred while fetching historical data for {ticker_symbol}. Please try again later.")
                 return pd.DataFrame()
     return pd.DataFrame() # Fallback if all retries fail
 
@@ -156,6 +159,12 @@ def load_historical_data(stock_name, period="5y", retries=5, initial_delay=1):
 def add_common_features(hist):
     """Adds various technical indicators as features common to multiple modules."""
     df = hist.copy()
+    # Ensure 'Close' column is numeric for calculations
+    df['Close'] = pd.to_numeric(df['Close'], errors='coerce')
+    df['Volume'] = pd.to_numeric(df['Volume'], errors='coerce')
+    df['High'] = pd.to_numeric(df['High'], errors='coerce')
+    df['Low'] = pd.to_numeric(df['Low'], errors='coerce')
+
     df['Return_1d'] = df['Close'].pct_change()
     df['MA10'] = df['Close'].rolling(window=10).mean()
     df['MA50'] = df['Close'].rolling(window=50).mean()
@@ -174,9 +183,13 @@ def compute_rsi(series, period=14):
     delta = series.diff()
     gain = delta.where(delta > 0, 0.0)
     loss = -delta.where(delta < 0, 0.0)
+    # Handle division by zero for rs calculation
     avg_gain = gain.rolling(window=period).mean()
     avg_loss = loss.rolling(window=period).mean()
-    rs = avg_gain / avg_loss
+    
+    # Avoid division by zero: if avg_loss is 0, rs becomes infinity, RSI becomes 100
+    rs = np.where(avg_loss == 0, np.inf, avg_gain / avg_loss)
+    
     return 100 - (100 / (1 + rs))
 
 # --- Streamlit Application Main Layout ---
@@ -198,18 +211,19 @@ def main():
         st.session_state.analyze_triggered = False
 
     # Text input for ticker search
+    # Updated help text to reflect FMP's common ticker formats
     ticker_input = st.text_input(
-        "Search Stock Ticker (e.g., AAPL, RELIANCE.NS)",
+        "Search Stock Ticker (e.g., AAPL, RELIANCE.NS, TCS.BO)",
         value=st.session_state.current_ticker,
         key="main_ticker_search",
-        help="Type a few letters to see suggestions. Press Enter to analyze."
+        help="Type a few letters to see suggestions. Press Enter to analyze. For Indian stocks, use .NS for NSE (e.g., RELIANCE.NS) and .BO for BSE (e.g., TCS.BO)."
     )
 
     # Autocomplete suggestions
     suggestions = []
     if ticker_input:
-        # Use the robust fetch_yahoo_suggestions from yahoo_autocomplete module
-        suggestions = yahoo_autocomplete.fetch_yahoo_suggestions(ticker_input)
+        # Use the robust fetch_fmp_suggestions from fmp_autocomplete module
+        suggestions = fmp_autocomplete.fetch_fmp_suggestions(ticker_input, api_key=FMP_API_KEY)
 
     # --- Only display columns and buttons if suggestions exist ---
     if suggestions:
@@ -221,8 +235,10 @@ def main():
             for i, suggestion in enumerate(suggestions):
                 if i < len(cols): # Defensive check to prevent index out of range
                     with cols[i]:
+                        # Extract just the ticker symbol, assuming format is "SYMBOL - Name"
+                        suggested_ticker = suggestion.split(' - ')[0] 
                         if st.button(suggestion, key=f"suggestion_{i}"):
-                            st.session_state.current_ticker = suggestion.split(' - ')[0]  # Extract just the ticker symbol
+                            st.session_state.current_ticker = suggested_ticker
                             st.session_state.analyze_triggered = True
                             st.rerun()  # Rerun to update the main input and trigger analysis
     # --- END FIX ---
@@ -230,7 +246,8 @@ def main():
     # Analyze Button
     if st.button("🚀 Analyze Stock", key="analyze_button", type="primary"):
         if ticker_input:
-            st.session_state.current_ticker = ticker_input.split(' - ')[0]  # Ensure just ticker symbol is saved
+            # Ensure just ticker symbol is saved, clean input if it contains description
+            st.session_state.current_ticker = ticker_input.split(' - ')[0]
             st.session_state.analyze_triggered = True
         else:
             st.warning("Please enter a stock ticker to analyze.")
@@ -266,20 +283,24 @@ def main():
             return  # Exit function if no data
 
         with tab_summary:
-            stock_summary.display_stock_summary(ticker_to_analyze)  # Call from stock_summary module
+            # Pass the FMP API key to the stock_summary module
+            stock_summary.display_stock_summary(ticker_to_analyze, api_key=FMP_API_KEY)
 
         with tab_financials:
-            financials.display_financials(ticker_to_analyze)  # Call from financials module
+            # Pass the FMP API key to the financials module
+            financials.display_financials(ticker_to_analyze, api_key=FMP_API_KEY)
 
         with tab_probabilistic:
             probabilistic_stock_model.display_probabilistic_models(hist_data_for_tabs)
 
+        with tab_news:
+            # Pass the FMP API key to news_sentiment for company name lookup
+            news_sentiment.display_news_sentiment(ticker_to_analyze, news_api_key=NEWS_API_KEY, fmp_api_key=FMP_API_KEY)
+
         with tab_forecast:
             forecast_module.display_forecasting(hist_data_for_tabs)
-
-        with tab_news:
-            news_sentiment.display_news_sentiment(ticker_to_analyze, news_api_key=NEWS_API_KEY)
 
 
 if __name__ == "__main__":
     main()
+
