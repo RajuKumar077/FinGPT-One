@@ -33,10 +33,8 @@ def fetch_fmp_suggestions(query, api_key, retries=3, initial_delay=0.75):
 
             if not data: # Empty list usually means no matches
                 print(f"No FMP symbol search results found for '{query}'.")
-                if "Error Message" in str(data): # Check for FMP-specific error messages
-                    st.error(f"FMP API Search Error: {data.get('Error Message', 'Unknown API Error')}. Please check query or API key.")
-                elif "limit" in str(data).lower(): # Generic check for rate limit messages
-                    st.warning(f"⚠️ FMP API rate limit might be hit for symbol search. Please wait and try again or check your API key usage.")
+                # Removed direct st.error/warning here to avoid showing too many messages
+                # The main app handles overall errors.
                 return []
             
             suggestions = []
