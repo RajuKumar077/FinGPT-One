@@ -25,7 +25,7 @@ def display_forecasting(hist_data):
     df['Close'] = pd.to_numeric(df['Close'], errors='coerce')
     df.dropna(subset=['Close'], inplace=True) # Drop rows where 'Close' is NaN
 
-    if df.empty or len(df) < 50: # Need sufficient data for forecasting
+    if df.empty or len(df) < 50: # Need sufficient data for forecasting, e.g., for MA20
         st.warning("Not enough valid historical data points for forecasting. At least 50 data points with valid closing prices are recommended.")
         return
 
@@ -36,7 +36,7 @@ def display_forecasting(hist_data):
     df['MA20'] = df['Close'].rolling(window=20).mean()
     df.dropna(inplace=True) # Drop NaNs created by rolling mean
 
-    if df.empty or len(df) < 2:
+    if df.empty or len(df) < 2: # After dropping NaNs from MA20 calculation
         st.warning("Not enough data after feature engineering for forecasting. Ensure sufficient historical data and check for missing values.")
         return
 
@@ -51,21 +51,27 @@ def display_forecasting(hist_data):
     X_train, X_test = X[:train_size], X[train_size:]
     y_train, y_test = y[:train_size], y[train_size:]
 
-    # Create a pipeline with scaling and linear regression
-    model_pipeline = Pipeline([
-        ('scaler', StandardScaler()),
-        ('regressor', LinearRegression())
-    ])
+    # Ensure test sets are not empty, this can happen with very small datasets
+    if X_test.empty or y_test.empty:
+        st.warning("Not enough data to create a test set for model evaluation. Forecasting will proceed, but accuracy metrics will not be displayed.")
+        y_pred_test = np.array([]) # Empty array if no test data
+        rmse = float('nan') # Set RMSE to NaN
+    else:
+        # Create a pipeline with scaling and linear regression
+        model_pipeline = Pipeline([
+            ('scaler', StandardScaler()),
+            ('regressor', LinearRegression())
+        ])
 
-    # Train the model
-    model_pipeline.fit(X_train, y_train)
+        # Train the model
+        model_pipeline.fit(X_train, y_train)
 
-    # Make predictions on the test set
-    y_pred_test = model_pipeline.predict(X_test)
-    
-    # Calculate RMSE on the test set
-    rmse = np.sqrt(mean_squared_error(y_test, y_pred_test))
-    st.write(f"**Root Mean Squared Error (RMSE) on Test Set:** `{rmse:.2f}`")
+        # Make predictions on the test set
+        y_pred_test = model_pipeline.predict(X_test)
+        
+        # Calculate RMSE on the test set
+        rmse = np.sqrt(mean_squared_error(y_test, y_pred_test))
+        st.write(f"**Root Mean Squared Error (RMSE) on Test Set:** `{rmse:.2f}`")
 
     # --- Forecasting Future Dates ---
     st.markdown("<h5>Future Price Forecast:</h5>", unsafe_allow_html=True)
@@ -87,6 +93,15 @@ def display_forecasting(hist_data):
     })
 
     # Predict future prices
+    # Ensure model_pipeline is trained even if test set was empty,
+    # by training on full data if test_set was skipped due to size.
+    if 'model_pipeline' not in locals(): # If model wasn't trained because test set was empty
+        model_pipeline = Pipeline([
+            ('scaler', StandardScaler()),
+            ('regressor', LinearRegression())
+        ])
+        model_pipeline.fit(X, y) # Train on all available data
+
     future_predictions = model_pipeline.predict(X_future)
     future_dates = [pd.to_datetime(date, unit='D', origin='julian').date() for date in future_dates_ordinal]
 
@@ -109,14 +124,15 @@ def display_forecasting(hist_data):
         line=dict(color='cyan')
     ))
 
-    # Predicted values on test set
-    fig.add_trace(go.Scatter(
-        x=pd.to_datetime(df['Date'][train_size:]),
-        y=y_pred_test,
-        mode='lines',
-        name='Predicted (Test Set)',
-        line=dict(color='orange', dash='dot')
-    ))
+    # Predicted values on test set (only if test set was not empty)
+    if not X_test.empty:
+        fig.add_trace(go.Scatter(
+            x=pd.to_datetime(df['Date'][train_size:]),
+            y=y_pred_test,
+            mode='lines',
+            name='Predicted (Test Set)',
+            line=dict(color='orange', dash='dot')
+        ))
 
     # Future Forecast
     fig.add_trace(go.Scatter(
