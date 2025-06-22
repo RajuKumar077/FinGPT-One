@@ -28,16 +28,22 @@ def display_probabilistic_models(hist_data):
 
     df['Return_1d'] = df['Close'].pct_change()
     df['MA10'] = df['Close'].rolling(window=10).mean()
-    df['MA50'] = df['Close'].rolling(window=50).mean()
+    df['MA50'] = df['Close'].rolling(window=50).mean() # Requires at least 50 data points
     df['Volatility'] = df['Close'].rolling(window=10).std()
-    df['RSI'] = compute_rsi(df['Close'], 14) # Using local RSI
+    df['RSI'] = compute_rsi(df['Close'], 14) # Using local RSI, requires at least 14 data points
     df['Volume_MA5'] = df['Volume'].rolling(window=5).mean()
     df['High_Low_Diff'] = (df['High'] - df['Low']) / df['Close']
     df['Target'] = (df['Close'].shift(-1) > df['Close']).astype(int)  # 1 = up, 0 = down
+    
+    # Drop rows with any NaN values after feature creation
     df.dropna(inplace=True)
 
-    if df.empty:
-        st.warning("Not enough data to compute features for probabilistic models after cleaning. Please check data range and quality.")
+    # --- Added Robustness Check: Ensure enough data points after feature engineering ---
+    # For MA50, we need at least 50 data points. For train_test_split, we need at least 2.
+    # Let's set a practical minimum for model training (e.g., 60 data points)
+    min_data_points_required = 60 
+    if len(df) < min_data_points_required:
+        st.warning(f"Not enough clean historical data (need at least {min_data_points_required} data points after feature engineering) for probabilistic models. Please try a ticker with a longer history or wait for more data to accumulate.")
         return
 
     # --- Model Training ---
@@ -45,19 +51,18 @@ def display_probabilistic_models(hist_data):
 
     features = ['Return_1d', 'MA10', 'MA50', 'Volatility', 'RSI', 'Volume_MA5', 'High_Low_Diff']
     
-    # Check if all features exist after dropping NaNs
+    # Final check if all features exist after dropping NaNs (should be covered by len check above, but good practice)
     missing_features = [f for f in features if f not in df.columns]
     if missing_features:
-        st.error(f"Error: Missing required features for the model: {', '.join(missing_features)}. This might be due to insufficient historical data or data quality issues.")
+        st.error(f"Error: Missing required features for the model: {', '.join(missing_features)}. This might be due to a problem with data processing.")
         return
 
     X = df[features]
     y = df['Target']
 
-    if len(X) < 2: # Need at least 2 samples for train_test_split
-        st.info("Not enough data points to train the model after feature engineering. At least 2 data points with all features are required.")
-        return
-
+    # Splitting data. Ensure there's enough data for both train and test sets.
+    # If len(X) is small, test_size might need adjustment, or cross-validation considered.
+    # For simplicity, we'll keep 0.2 and rely on the `min_data_points_required` check.
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
 
     model = RandomForestClassifier(n_estimators=100, random_state=42)
@@ -73,15 +78,19 @@ def display_probabilistic_models(hist_data):
 
     # --- Prediction for Next Day ---
     st.markdown("<h5>Tomorrow's Prediction:</h5>", unsafe_allow_html=True)
-    last_data_point = df.iloc[-1][features].values.reshape(1, -1)
     
-    # Handle potential NaN in last_data_point if the last row still has some due to feature calculation
-    if np.isnan(last_data_point).any():
-        st.warning("Cannot make a prediction for tomorrow: The latest data point has missing or invalid values after feature calculation.")
+    # Get the last valid data point for prediction
+    last_data_point_raw = df.iloc[-1]
+    last_data_point_features = last_data_point_raw[features].values.reshape(1, -1)
+    
+    # This check is now less likely to hit if min_data_points_required is enforced,
+    # but still good for any edge cases.
+    if np.isnan(last_data_point_features).any():
+        st.warning("Cannot make a prediction for tomorrow: The latest data point has missing or invalid values after feature calculation. This might indicate issues with very recent data from the API.")
         return
 
-    next_day_prediction = model.predict(last_data_point)[0]
-    next_day_proba_up = model.predict_proba(last_data_point)[0, 1]
+    next_day_prediction = model.predict(last_data_point_features)[0]
+    next_day_proba_up = model.predict_proba(last_data_point_features)[0, 1]
 
     prediction_text = "UP 🟢" if next_day_prediction == 1 else "DOWN 🔴"
     st.markdown(f"**Predicted Movement for Next Trading Day:** `{prediction_text}`")
@@ -127,12 +136,13 @@ def display_probabilistic_models(hist_data):
         fig_proba.update_layout(
             title='📈 Recent Close Price vs. Predicted Up Probability',
             xaxis_title='Date',
-            yaxis_title='Close Price',
+            yaxis_title='Sentiment Score', # Adjusted for better clarity on secondary y-axis
             template='plotly_dark',
             height=500,
+            showlegend=True,
             font=dict(family="Inter", size=12, color="#E0E0E0")
         )
-        fig_proba.update_yaxes(title_text="Probability of Up", secondary_y=True)
+        fig_proba.update_yaxes(title_text="Probability of Up", secondary_y=True) # Secondary y-axis specifically for probability
         st.plotly_chart(fig_proba, use_container_width=True)
     else:
         st.info("Not enough recent data to visualize model performance.")
