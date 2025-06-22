@@ -7,7 +7,7 @@ import requests # Import requests for API calls
 import json # Import json for parsing API responses
 
 # Import functions from your separate modules
-# Renamed yahoo_autocomplete to fmp_autocomplete to reflect the new API
+# This has been updated from 'yahoo_autocomplete' to 'fmp_autocomplete'
 import pages.fmp_autocomplete as fmp_autocomplete
 import pages.stock_summary as stock_summary
 import pages.financials as financials
@@ -47,8 +47,8 @@ st.markdown("""
 # NewsAPI.com API Key - IMPORTANT: Replace with your actual key
 NEWS_API_KEY = "874ba654bdcd4aa7b68f7367a907cc2f"
 
-# Financial Modeling Prep API Key - IMPORTANT: Get your free key from https://financialmodelingprep.com/developer/docs
-FMP_API_KEY = "5C9DnMCAzYam2ZPjNpOxKLFxUiGhrJDD" # Your FMP API Key
+# Financial Modeling Prep API Key - Your provided key
+FMP_API_KEY = "5C9DnMCAzYam2ZPjNpOxKLFxUiGhrJDD"
 
 # --- Custom CSS and Font Loading ---
 def load_css(file_path):
