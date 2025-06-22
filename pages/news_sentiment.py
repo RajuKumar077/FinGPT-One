@@ -10,9 +10,6 @@ import numpy as np
 import json
 import time
 
-# Alpha Vantage API Key
-ALPHA_VANTAGE_API_KEY = "9NBXSBBIYEBJHBIP"
-
 # --- News Fetching and Sentiment Analysis ---
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_news_articles(company_name, news_api_key, total_articles=50):
@@ -60,13 +57,11 @@ def generate_sentiment_summary(sentiments):
     return summary + f"\n\n**Average Sentiment Score**: `{avg_sent:.2f}`\n\n{trend}"
 
 @st.cache_data(ttl=86400, show_spinner=False)
-def get_company_name_from_ticker(ticker, retries=3, initial_delay=0.5):
-    """Fetches the company's long name using Alpha Vantage OVERVIEW endpoint."""
-    base_url = "https://www.alphavantage.co/query"
+def get_company_name_from_ticker(ticker, fmp_api_key, retries=3, initial_delay=0.5):
+    """Fetches the company's long name using Financial Modeling Prep (FMP) OVERVIEW endpoint."""
+    base_url = f"https://financialmodelingprep.com/api/v3/profile/{ticker}"
     params = {
-        "function": "OVERVIEW",
-        "symbol": ticker,
-        "apikey": ALPHA_VANTAGE_API_KEY
+        "apikey": fmp_api_key
     }
 
     for attempt in range(retries + 1):
@@ -82,14 +77,15 @@ def get_company_name_from_ticker(ticker, retries=3, initial_delay=0.5):
             response.raise_for_status()
             data = response.json()
 
-            if "Error Message" in data:
-                error_msg = data["Error Message"]
-                print(f"Alpha Vantage API Overview Error (for company name) for {ticker}: {error_msg}")
-                if "daily limit" in error_msg.lower() or "throttle" in error_msg.lower():
-                    st.warning(f"Alpha Vantage API daily limit reached for company name fetch of {ticker}. Falling back to ticker symbol. (max 25 calls/day for free tier).")
+            if not data or not isinstance(data, list) or not data[0]:
+                print(f"No company profile data found for {ticker} to get name.")
+                if "Error Message" in str(data):
+                    st.warning(f"FMP API Error (for company name) for {ticker}: {data.get('Error Message', 'Unknown Error')}. Falling back to ticker symbol.")
+                elif "limit" in str(data).lower():
+                    st.warning(f"⚠️ FMP API rate limit might be hit for company name. Falling back to ticker symbol. Please wait and try again or check your API key usage.")
                 return ticker # Fallback to ticker symbol
             
-            return data.get('Name', ticker)
+            return data[0].get('companyName', ticker)
         except requests.exceptions.RequestException as req_err:
             print(f"Attempt {attempt}/{retries}: Network or API request error for company name {ticker}: {req_err}. Falling back to ticker symbol.")
             if attempt == retries:
@@ -224,15 +220,15 @@ def create_sentiment_metrics_cards(sentiments, articles):
         </div>
         """, unsafe_allow_html=True)
 
-def display_news_sentiment(ticker, news_api_key):
+def display_news_sentiment(ticker, news_api_key, fmp_api_key):
     """Main function to display news sentiment analysis for a given ticker."""
     st.markdown(f"<h3 class='section-title'>News Sentiment Analysis for {ticker.upper()}</h3>", unsafe_allow_html=True)
 
     num_articles = st.slider("Number of Articles to Analyze", min_value=10, max_value=100, value=30, step=10, key=f"num_articles_sentiment_{ticker}")
 
     with st.spinner("Fetching and analyzing news..."):
-        # Get company name using Alpha Vantage
-        company_name = get_company_name_from_ticker(ticker)
+        # Get company name using FMP
+        company_name = get_company_name_from_ticker(ticker, fmp_api_key)
         
         # Dynamic industry keywords or broader search query could be implemented
         # The search for NewsAPI is broad, it searches for (company_name OR ticker OR keywords)
@@ -295,6 +291,7 @@ def display_news_sentiment(ticker, news_api_key):
         else:
             st.info("Not enough data to generate Sentiment Heatmap.")
 
+    st.markdown("---")
     st.markdown("<h4 class='section-subtitle'>Key Topics & Articles</h4>", unsafe_allow_html=True)
     word_freq = create_word_cloud_data(articles)
     if word_freq:
