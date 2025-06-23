@@ -72,7 +72,6 @@ load_css("assets/style.css")
 def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
     """
     Loads historical stock data, attempting yfinance, then Alpha Vantage, then FMP (historical-chart/daily, then historical-price-full).
-    As a guaranteed last resort, it will try to load from a local CSV file.
     """
     if not ticker_symbol:
         return pd.DataFrame()
@@ -368,49 +367,8 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
                 st.error(f"❌ An unexpected error occurred while fetching historical-price-full data from FMP: {e}")
                 print(f"DEBUG: FMP (historical-price-full) Unexpected Error: {e}")
 
-    # --- LAST RESORT: Load from a local CSV file if all API calls failed ---
-    # This block is ENABLED as a failsafe for demonstration purposes.
-    # It ensures the app runs even if live API data is consistently unavailable.
-    # ACTION REQUIRED:
-    # 1. Create a folder named 'data' in your project's root directory.
-    # 2. Download historical data CSVs for the tickers you want to analyze (e.g., from Yahoo Finance).
-    #    Ensure the CSV has columns like 'Date', 'Open', 'High', 'Low', 'Close', 'Volume'.
-    # 3. Save the CSV file(s) in the 'data/' folder with the ticker symbol as the filename.
-    #    Example: For RELIANCE.NS, save it as 'data/RELIANCE.NS.csv'.
-    try:
-        csv_path = os.path.join("data", f"{ticker_symbol.upper()}.csv")
-        if os.path.exists(csv_path):
-            st.info(f"All APIs failed for {ticker_symbol}. Attempting to load from local CSV: {csv_path}...")
-            hist_df_csv = pd.read_csv(csv_path)
-            hist_df_csv['Date'] = pd.to_datetime(hist_df_csv['Date']).dt.date
-            hist_df_csv.sort_values(by='Date', ascending=True, inplace=True)
-            required_cols = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
-            # Ensure required columns exist, fill missing with NaN, then drop rows with NaNs in required_cols
-            for col in required_cols:
-                if col not in hist_df_csv.columns:
-                    hist_df_csv[col] = np.nan
-            hist_df = hist_df_csv[required_cols].dropna().reset_index(drop=True)
-
-            if not hist_df.empty:
-                st.success(f"✅ Successfully loaded historical data for {ticker_symbol} from local CSV (all APIs failed).")
-                st.warning(f"⚠️ Data for {ticker_symbol} is loaded from a local CSV. It may not be live or the most recent. Please ensure you have placed the CSV in the 'data/' folder correctly.")
-                print(f"DEBUG: Loaded from CSV for {ticker_symbol} with {len(hist_df)} rows.")
-                return hist_df
-            else:
-                st.warning(f"⚠️ Local CSV for {ticker_symbol} was empty or malformed after processing.")
-                print(f"DEBUG: Local CSV empty/malformed for {ticker_symbol}.")
-        else:
-            print(f"DEBUG: Local CSV file not found at {csv_path}")
-    except FileNotFoundError:
-        print(f"DEBUG: Local CSV file not found (handled by os.path.exists check).")
-    except Exception as e:
-        st.error(f"❌ Error loading local CSV for {ticker_symbol}: {e}. Please check the CSV file format and contents.")
-        print(f"DEBUG: Error loading CSV: {e}")
-    # --- END LAST RESORT CSV BLOCK ---
-
-
-    # If all sources (APIs and CSV) fail
-    st.error(f"❌ Historical data for {ticker_symbol} could not be retrieved from any live API or local CSV. Please double-check the ticker symbol, your API keys, and ensure any necessary CSV files are correctly placed in the 'data/' folder. Data for this symbol may be consistently unavailable from free sources.")
+    # If all sources (APIs) fail
+    st.error(f"❌ Historical data for {ticker_symbol} could not be retrieved from any live API. Please double-check the ticker symbol and your API keys. Data for this symbol may be consistently unavailable from free sources.")
     return pd.DataFrame()
 
 
