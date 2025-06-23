@@ -69,7 +69,7 @@ load_css("assets/style.css")
 @st.cache_data(ttl=3600, show_spinner=False)  # Cache historical data for 1 hour
 def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
     """
-    Loads historical stock data, first attempting yfinance, then Alpha Vantage, then FMP.
+    Loads historical stock data, first attempting yfinance, then Alpha Vantage, then FMP (historical-chart).
     """
     if not ticker_symbol:
         return pd.DataFrame()
@@ -133,9 +133,6 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
 
         try:
             with st.spinner(f"Attempting to load historical data for {ticker_symbol} from Alpha Vantage... (This may take a moment due to API limits)"):
-                # Alpha Vantage free tier has a limit of 5 calls per minute.
-                # We add a sleep here before the call, assuming it's the only AV call in sequence,
-                # or it's the first call after a period of no AV calls.
                 time.sleep(15) # Wait 15 seconds to respect the rate limit (5 calls/min means 12s per call average)
 
                 response_av = requests.get(alpha_vantage_url, params=params_av, timeout=20)
@@ -203,28 +200,27 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
         except Exception as e:
             st.error(f"❌ An unexpected error occurred while fetching from Alpha Vantage: {e}")
 
-    # --- Attempt 3: Fallback to Financial Modeling Prep (FMP) if others failed ---
-    st.info(f"YFinance and Alpha Vantage failed for {ticker_symbol}. Falling back to Financial Modeling Prep (FMP)...")
+    # --- Attempt 3: Fallback to Financial Modeling Prep (FMP) historical-chart if others failed ---
+    st.info(f"YFinance and Alpha Vantage failed for {ticker_symbol}. Falling back to Financial Modeling Prep (FMP) historical chart data...")
     if not fmp_api_key or fmp_api_key == "YOUR_FMP_KEY":
-        st.error("❌ FMP API key is not set. Cannot use FMP as a fallback for historical data. Please update `app.py`.")
+        st.error("❌ FMP API key is not set. Cannot use FMP as a fallback for historical chart data. Please update `app.py`.")
     else:
-        fmp_historical_url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{ticker_symbol}"
-        params_fmp_hist = {"apikey": fmp_api_key}
+        # Try FMP historical-chart/daily first
+        fmp_historical_chart_url = f"https://financialmodelingprep.com/api/v3/historical-chart/daily/{ticker_symbol}"
+        params_fmp_chart = {"apikey": fmp_api_key}
         
         try:
-            with st.spinner(f"Attempting to load historical data for {ticker_symbol} from FMP..."):
-                # FMP free tier also has rate limits (250 requests/day for historical data)
-                # No specific sleep here as it might be first FMP call for historical data type
-                response_fmp_hist = requests.get(fmp_historical_url, params=params_fmp_hist, timeout=20)
-                response_fmp_hist.raise_for_status()
-                data_fmp_hist = response_fmp_hist.json()
+            with st.spinner(f"Attempting to load historical chart data for {ticker_symbol} from FMP..."):
+                response_fmp_chart = requests.get(fmp_historical_chart_url, params=params_fmp_chart, timeout=20)
+                response_fmp_chart.raise_for_status()
+                data_fmp_chart = response_fmp_chart.json()
 
-                if data_fmp_hist and "historical" in data_fmp_hist and data_fmp_hist["historical"]:
-                    df_fmp_hist = pd.DataFrame(data_fmp_hist["historical"])
-                    df_fmp_hist['date'] = pd.to_datetime(df_fmp_hist['date'])
-                    df_fmp_hist.sort_values('date', ascending=True, inplace=True)
+                if data_fmp_chart and isinstance(data_fmp_chart, list) and data_fmp_chart:
+                    df_fmp_chart = pd.DataFrame(data_fmp_chart)
+                    df_fmp_chart['date'] = pd.to_datetime(df_fmp_chart['date'])
+                    df_fmp_chart.sort_values('date', ascending=True, inplace=True)
                     
-                    df_fmp_hist.rename(columns={
+                    df_fmp_chart.rename(columns={
                         'date': 'Date',
                         'open': 'Open',
                         'high': 'High',
@@ -233,41 +229,41 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
                         'volume': 'Volume'
                     }, inplace=True)
                     
-                    df_fmp_hist['Date'] = df_fmp_hist['Date'].dt.date
+                    df_fmp_chart['Date'] = df_fmp_chart['Date'].dt.date
                     required_cols = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
-                    hist_df = df_fmp_hist[required_cols].dropna().reset_index(drop=True)
+                    hist_df = df_fmp_chart[required_cols].dropna().reset_index(drop=True)
 
                     if not hist_df.empty:
-                        st.success(f"✅ Successfully loaded historical data for {ticker_symbol} using FMP.")
+                        st.success(f"✅ Successfully loaded historical data for {ticker_symbol} using FMP (historical chart).")
                         return hist_df
                     else:
-                        st.warning(f"⚠️ FMP returned empty or malformed historical data for {ticker_symbol}.")
+                        st.warning(f"⚠️ FMP (historical chart) returned empty or malformed data for {ticker_symbol}.")
 
-                elif "Error Message" in data_fmp_hist:
-                    st.error(f"❌ FMP API Error for {ticker_symbol} historical data: {data_fmp_hist['Error Message']}. Check your FMP API key or usage limits.")
+                elif isinstance(data_fmp_chart, dict) and "Error Message" in data_fmp_chart:
+                    st.error(f"❌ FMP API Error for {ticker_symbol} historical chart data: {data_fmp_chart['Error Message']}. Check your FMP API key or usage limits. The 'historical-chart' endpoint may also have restrictions.")
                 else:
-                    st.error(f"❌ FMP returned unexpected data format for {ticker_symbol} historical data.")
+                    st.error(f"❌ FMP (historical chart) returned unexpected data format for {ticker_symbol}. Raw response: {data_fmp_chart}")
 
         except requests.exceptions.HTTPError as http_err:
             if http_err.response.status_code == 429:
-                st.error(f"❌ FMP API rate limit hit for historical data for {ticker_symbol}. Please wait and try again.")
+                st.error(f"❌ FMP API rate limit hit for historical chart data for {ticker_symbol}. Please wait and try again.")
             elif http_err.response.status_code in [401, 403]:
-                st.error("❌ FMP API key is invalid or unauthorized for historical data. Please check your FMP_API_KEY in app.py.")
+                st.error("❌ FMP API key is invalid or unauthorized for historical chart data. Please check your FMP_API_KEY in app.py.")
             else:
-                st.error(f"❌ FMP HTTP error occurred fetching historical data: {http_err}. Status: {http_err.response.status_code}")
+                st.error(f"❌ FMP HTTP error occurred fetching historical chart data: {http_err}. Status: {http_err.response.status_code}")
         except requests.exceptions.ConnectionError as conn_err:
-            st.error(f"❌ FMP Connection error fetching historical data: {conn_err}. Check your internet connection.")
+            st.error(f"❌ FMP Connection error fetching historical chart data: {conn_err}. Check your internet connection.")
         except requests.exceptions.Timeout as timeout_err:
-            st.error(f"❌ FMP Request timed out fetching historical data. Server might be slow or unresponsive. Please try again.")
+            st.error(f"❌ FMP Request timed out fetching historical chart data. Server might be slow or unresponsive. Please try again.")
         except json.JSONDecodeError as json_err:
-            st.error(f"❌ FMP: Received invalid JSON data for historical data. Error: {json_err}")
+            st.error(f"❌ FMP: Received invalid JSON data for historical chart data. Error: {json_err}")
         except KeyError as ke:
-            st.error(f"❌ FMP: Data parsing error - expected column not found for historical data. Error: {ke}. This may indicate a change in API response format.")
+            st.error(f"❌ FMP: Data parsing error - expected column not found for historical chart data. Error: {ke}. This may indicate a change in API response format.")
         except Exception as e:
-            st.error(f"❌ An unexpected error occurred while fetching historical data from FMP: {e}")
+            st.error(f"❌ An unexpected error occurred while fetching historical chart data from FMP: {e}")
 
     # If all sources fail
-    st.error(f"❌ Historical data for {ticker_symbol} could not be retrieved from any source (yfinance, Alpha Vantage, or FMP). Please double-check the ticker symbol (e.g., AAPL for US, RELIANCE.NS for NSE, TCS.BO for BSE for Indian stocks) or try again later. Free data sources for this symbol may be temporarily unavailable or not supported.")
+    st.error(f"❌ Historical data for {ticker_symbol} could not be retrieved from any source (yfinance, Alpha Vantage, or FMP). Please double-check the ticker symbol (e.g., AAPL for US, RELIANCE.NS for NSE, TCS.BO for BSE for Indian stocks) or try again later. Free data sources for this symbol may be temporarily unavailable or not supported, especially for extensive historical data on non-US exchanges.")
     return pd.DataFrame()
 
 
@@ -299,9 +295,7 @@ def main():
 
     suggestions = []
     if ticker_input:
-        # FMP_API_KEY is now correctly set in the global scope of this file
-        # The check below is for user awareness, but it should now pass if the key is valid.
-        if FMP_API_KEY == "YOUR_FMP_KEY": 
+        if FMP_API_KEY == "YOUR_FMP_KEY": # This check remains, but FMP_API_KEY is now set above
             st.warning("⚠️ FMP_API_KEY is not set. Autocomplete suggestions may be limited or unavailable. Please update `app.py`.")
         else:
             suggestions = fmp_autocomplete.fetch_fmp_suggestions(ticker_input, api_key=FMP_API_KEY)
@@ -337,7 +331,7 @@ def main():
                     unsafe_allow_html=True)
 
         # Load historical data first, as it's a prerequisite for multiple tabs
-        # This block now uses the enhanced load_historical_data with FMP fallback
+        # This block now uses the enhanced load_historical_data with FMP historical-chart fallback
         if 'historical_data' not in st.session_state or st.session_state.historical_data is None or \
            st.session_state.historical_data.empty or \
            (hasattr(st.session_state.historical_data, 'name') and st.session_state.historical_data.name != ticker_to_analyze):
