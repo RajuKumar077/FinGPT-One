@@ -69,7 +69,8 @@ load_css("assets/style.css")
 @st.cache_data(ttl=3600, show_spinner=False)  # Cache historical data for 1 hour
 def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
     """
-    Loads historical stock data, first attempting yfinance, then Alpha Vantage, then FMP (historical-chart).
+    Loads historical stock data, first attempting yfinance, then Alpha Vantage, then FMP (historical-chart/daily).
+    As a last resort for demonstration if all APIs fail, includes option to load from a local CSV.
     """
     if not ticker_symbol:
         return pd.DataFrame()
@@ -84,6 +85,7 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
         try:
             with st.spinner(f"Attempting yfinance for {ticker_symbol} (period: {period})..."):
                 ticker = yf.Ticker(ticker_symbol)
+                # auto_adjust=True automatically adjusts prices for splits and dividends
                 hist_df_yf = ticker.history(period=period, auto_adjust=True, timeout=15)
 
             if not hist_df_yf.empty:
@@ -102,9 +104,10 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
                 hist_df.sort_values(by='Date', ascending=True, inplace=True)
                 hist_df.reset_index(drop=True, inplace=True)
                 st.success(f"✅ Successfully loaded historical data for {ticker_symbol} using yfinance (period: '{period}').")
+                print(f"DEBUG: YFinance data loaded for {ticker_symbol} with {len(hist_df)} rows.")
                 return hist_df # Return on first successful yfinance load
             else:
-                print(f"yfinance returned empty data for {ticker_symbol} with period '{period}'. Trying next yfinance period.")
+                print(f"DEBUG: yfinance returned empty data for {ticker_symbol} with period '{period}'. Trying next yfinance period.")
                 continue
 
         except requests.exceptions.RequestException as req_err:
@@ -173,14 +176,17 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
 
                     if not hist_df.empty:
                         st.success(f"✅ Successfully loaded historical data for {ticker_symbol} using Alpha Vantage.")
+                        print(f"DEBUG: Alpha Vantage data loaded for {ticker_symbol} with {len(hist_df)} rows.")
                         return hist_df
                     else:
                         st.warning(f"⚠️ Alpha Vantage returned empty or malformed data for {ticker_symbol} after processing. No historical data available.")
 
                 elif "Error Message" in data_av:
                     st.error(f"❌ Alpha Vantage API Error for {ticker_symbol}: {data_av['Error Message']}. Please check your API key or usage limits.")
+                    print(f"DEBUG: Alpha Vantage API Error: {data_av['Error Message']}")
                 else:
                     st.error(f"❌ Alpha Vantage returned unexpected data format for {ticker_symbol}. Raw response keys: {list(data_av.keys()) if isinstance(data_av, dict) else 'Not a dict'}")
+                    print(f"DEBUG: Alpha Vantage unexpected data format: {data_av}")
 
         except requests.exceptions.HTTPError as http_err:
             if http_err.response.status_code == 429:
@@ -189,23 +195,29 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
                 st.error("❌ Alpha Vantage API key is invalid or unauthorized. Please check your ALPHA_VANTAGE_API_KEY in app.py.")
             else:
                 st.error(f"❌ Alpha Vantage HTTP error occurred: {http_err}. Status: {http_err.response.status_code}")
+            print(f"DEBUG: Alpha Vantage HTTP Error: {http_err}")
         except requests.exceptions.ConnectionError as conn_err:
             st.error(f"❌ Alpha Vantage Connection error: {conn_err}. Please check your internet connection.")
+            print(f"DEBUG: Alpha Vantage Connection Error: {conn_err}")
         except requests.exceptions.Timeout as timeout_err:
             st.error(f"❌ Alpha Vantage Request timed out. The server might be slow or unresponsive. Please try again.")
+            print(f"DEBUG: Alpha Vantage Timeout: {timeout_err}")
         except json.JSONDecodeError as json_err:
             st.error(f"❌ Alpha Vantage: Received invalid JSON data from API. Please try again later. Error: {json_err}")
+            print(f"DEBUG: Alpha Vantage JSON Decode Error: {json_err}")
         except KeyError as ke:
             st.error(f"❌ Alpha Vantage: Data parsing error - expected column not found. Error: {ke}. This may indicate a change in API response format.")
+            print(f"DEBUG: Alpha Vantage KeyError: {ke}")
         except Exception as e:
             st.error(f"❌ An unexpected error occurred while fetching from Alpha Vantage: {e}")
+            print(f"DEBUG: Alpha Vantage Unexpected Error: {e}")
 
     # --- Attempt 3: Fallback to Financial Modeling Prep (FMP) historical-chart if others failed ---
     st.info(f"YFinance and Alpha Vantage failed for {ticker_symbol}. Falling back to Financial Modeling Prep (FMP) historical chart data...")
     if not fmp_api_key or fmp_api_key == "YOUR_FMP_KEY":
         st.error("❌ FMP API key is not set. Cannot use FMP as a fallback for historical chart data. Please update `app.py`.")
     else:
-        # Try FMP historical-chart/daily first
+        # Try FMP historical-chart/daily endpoint
         fmp_historical_chart_url = f"https://financialmodelingprep.com/api/v3/historical-chart/daily/{ticker_symbol}"
         params_fmp_chart = {"apikey": fmp_api_key}
         
@@ -235,14 +247,18 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
 
                     if not hist_df.empty:
                         st.success(f"✅ Successfully loaded historical data for {ticker_symbol} using FMP (historical chart).")
+                        print(f"DEBUG: FMP (historical chart) data loaded for {ticker_symbol} with {len(hist_df)} rows.")
                         return hist_df
                     else:
                         st.warning(f"⚠️ FMP (historical chart) returned empty or malformed data for {ticker_symbol}.")
+                        print(f"DEBUG: FMP (historical chart) empty/malformed data for {ticker_symbol}.")
 
                 elif isinstance(data_fmp_chart, dict) and "Error Message" in data_fmp_chart:
                     st.error(f"❌ FMP API Error for {ticker_symbol} historical chart data: {data_fmp_chart['Error Message']}. Check your FMP API key or usage limits. The 'historical-chart' endpoint may also have restrictions.")
+                    print(f"DEBUG: FMP (historical chart) API Error: {data_fmp_chart['Error Message']}")
                 else:
                     st.error(f"❌ FMP (historical chart) returned unexpected data format for {ticker_symbol}. Raw response: {data_fmp_chart}")
+                    print(f"DEBUG: FMP (historical chart) unexpected data format: {data_fmp_chart}")
 
         except requests.exceptions.HTTPError as http_err:
             if http_err.response.status_code == 429:
@@ -251,16 +267,53 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
                 st.error("❌ FMP API key is invalid or unauthorized for historical chart data. Please check your FMP_API_KEY in app.py.")
             else:
                 st.error(f"❌ FMP HTTP error occurred fetching historical chart data: {http_err}. Status: {http_err.response.status_code}")
+            print(f"DEBUG: FMP (historical chart) HTTP Error: {http_err}")
         except requests.exceptions.ConnectionError as conn_err:
             st.error(f"❌ FMP Connection error fetching historical chart data: {conn_err}. Check your internet connection.")
+            print(f"DEBUG: FMP (historical chart) Connection Error: {conn_err}")
         except requests.exceptions.Timeout as timeout_err:
             st.error(f"❌ FMP Request timed out fetching historical chart data. Server might be slow or unresponsive. Please try again.")
+            print(f"DEBUG: FMP (historical chart) Timeout: {timeout_err}")
         except json.JSONDecodeError as json_err:
             st.error(f"❌ FMP: Received invalid JSON data for historical chart data. Error: {json_err}")
+            print(f"DEBUG: FMP (historical chart) JSON Decode Error: {json_err}")
         except KeyError as ke:
             st.error(f"❌ FMP: Data parsing error - expected column not found for historical chart data. Error: {ke}. This may indicate a change in API response format.")
+            print(f"DEBUG: FMP (historical chart) KeyError: {ke}")
         except Exception as e:
             st.error(f"❌ An unexpected error occurred while fetching historical chart data from FMP: {e}")
+            print(f"DEBUG: FMP (historical chart) Unexpected Error: {e}")
+
+    # --- LAST RESORT: Load from a local CSV file if all API calls failed ---
+    # This block is here as a failsafe for demonstration purposes if live API data is consistently unavailable.
+    # To use this, you need to:
+    # 1. Manually download a historical data CSV for the ticker (e.g., from Yahoo Finance).
+    #    Make sure it has 'Date', 'Open', 'High', 'Low', 'Close', 'Volume' columns.
+    # 2. Place the CSV file in your project, e.g., in a 'data/' directory.
+    #    For 'RELIANCE.NS', you might save it as 'data/RELIANCE.NS.csv'.
+    # 3. Uncomment the lines below and ensure the path is correct.
+    #
+    # Example for RELIANCE.NS.csv:
+    # try:
+    #     csv_path = f"data/{ticker_symbol}.csv"
+    #     hist_df = pd.read_csv(csv_path)
+    #     hist_df['Date'] = pd.to_datetime(hist_df['Date']).dt.date
+    #     hist_df.sort_values(by='Date', ascending=True, inplace=True)
+    #     required_cols = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
+    #     hist_df = hist_df[required_cols].dropna().reset_index(drop=True)
+    #     if not hist_df.empty:
+    #         st.success(f"✅ Loaded historical data for {ticker_symbol} from local CSV (all APIs failed).")
+    #         print(f"DEBUG: Loaded from CSV for {ticker_symbol} with {len(hist_df)} rows.")
+    #         return hist_df
+    #     else:
+    #         st.warning(f"⚠️ Local CSV for {ticker_symbol} was empty or malformed.")
+    # except FileNotFoundError:
+    #     print(f"DEBUG: Local CSV file not found at {csv_path}")
+    # except Exception as e:
+    #     st.error(f"❌ Error loading local CSV for {ticker_symbol}: {e}")
+    #     print(f"DEBUG: Error loading CSV: {e}")
+    # --- END LAST RESORT CSV BLOCK ---
+
 
     # If all sources fail
     st.error(f"❌ Historical data for {ticker_symbol} could not be retrieved from any source (yfinance, Alpha Vantage, or FMP). Please double-check the ticker symbol (e.g., AAPL for US, RELIANCE.NS for NSE, TCS.BO for BSE for Indian stocks) or try again later. Free data sources for this symbol may be temporarily unavailable or not supported, especially for extensive historical data on non-US exchanges.")
