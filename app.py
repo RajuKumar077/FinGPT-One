@@ -46,7 +46,7 @@ st.markdown("""
 
 # API Keys
 NEWS_API_KEY = "874ba654bdcd4aa7b68f7367a907cc2f"
-# FMP API Key will now ONLY be used for symbol search/autocomplete and company name for news
+# FMP API Key will now ONLY be used for symbol search/autocomplete and company name for news and financial statements
 FMP_API_KEY = "5C9DnMCAzYam2ZPjNpOxKLFxUiGhrJDD"
 
 # --- Custom CSS and Font Loading ---
@@ -214,7 +214,7 @@ def main():
 
         if 'historical_data' not in st.session_state or st.session_state.historical_data is None or st.session_state.historical_data.empty or (hasattr(st.session_state.historical_data, 'name') and st.session_state.historical_data.name != ticker_to_analyze):
             with st.spinner(f"Loading historical data for {ticker_to_analyze.upper()}..."):
-                # Call load_historical_data without FMP API key, as it uses yfinance now
+                # Call load_historical_data using yfinance
                 st.session_state.historical_data = load_historical_data(ticker_to_analyze)
                 if not st.session_state.historical_data.empty:
                     st.session_state.historical_data.name = ticker_to_analyze
@@ -222,16 +222,16 @@ def main():
         hist_data_for_tabs = st.session_state.historical_data
 
         if hist_data_for_tabs.empty:
-            st.error(f"❌ Failed to load historical data for {ticker_to_analyze}. Some analysis tabs might not function.")
+            st.error(f"❌ Failed to load historical data for {ticker_to_analyze}. Please check the ticker symbol. Some analysis tabs might not function correctly.")
             st.session_state.analyze_triggered = False
             return
 
         with tab_summary:
-            # Pass FMP API key for basic company info via FMP
+            # Pass FMP API key for company info fallback/augmentation
             stock_summary.display_stock_summary(ticker_to_analyze, api_key=FMP_API_KEY)
 
         with tab_financials:
-            # Pass FMP API key for financials via FMP
+            # Pass FMP API key for financials
             financials.display_financials(ticker_to_analyze, api_key=FMP_API_KEY)
 
         with tab_probabilistic:
