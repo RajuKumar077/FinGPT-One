@@ -44,10 +44,11 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# API Keys (IMPORTANT: REPLACE "YOUR_KEY_HERE" WITH YOUR ACTUAL KEYS)
 NEWS_API_KEY = "874ba654bdcd4aa7b68f7367a907cc2f" # Get your free key from newsapi.com
 FMP_API_KEY = "5C9DnMCAzYam2ZPjNpOxKLFxUiGhrJDD"     # Get your free key from financialmodelingprep.com
 GEMINI_API_KEY = "AIzaSyAK8BevJ1wIrwMoYDsnCLQXdZlFglF92WE" # IMPORTANT: Get your key from Google Cloud Console (enable Generative Language API)
+ALPHA_VANTAGE_API_KEY = "WLVUE35CQ906QK3K" # IMPORTANT: Get your free key from www.alphavantage.co
+
 
 # --- Custom CSS and Font Loading ---
 def load_css(file_path):
@@ -64,65 +65,136 @@ st.markdown(
 load_css("assets/style.css")
 
 
-# --- Historical Data Loading (yfinance) - ENHANCED ROBUSTNESS ---
+# --- Historical Data Loading (yfinance and Alpha Vantage Fallback) ---
 @st.cache_data(ttl=3600, show_spinner=False)  # Cache historical data for 1 hour
-def load_historical_data(ticker_symbol):
+def load_historical_data(ticker_symbol, alpha_vantage_api_key):
     """
-    Loads historical stock data using yfinance.
-    Attempts to fetch max historical data, with fallbacks for shorter periods if max fails.
+    Loads historical stock data, first attempting yfinance, then falling back to Alpha Vantage.
     """
     if not ticker_symbol:
         return pd.DataFrame()
 
-    periods_to_try = ["max", "5y", "2y", "1y", "6mo", "3mo", "1mo"] # Ordered from longest to shortest
+    hist_df = pd.DataFrame()
 
-    for period in periods_to_try:
+    # --- Attempt 1: Try yfinance with multiple periods ---
+    st.info(f"Trying to load historical data for {ticker_symbol} using yfinance (primary source)...")
+    periods_to_try_yf = ["max", "5y", "2y", "1y", "6mo", "3mo", "1mo"] # Ordered from longest to shortest
+
+    for period in periods_to_try_yf:
         try:
-            # Use st.info within spinner to show progress to user
-            with st.spinner(f"Attempting to load historical data for {ticker_symbol} (period: {period})..."):
+            with st.spinner(f"Attempting yfinance for {ticker_symbol} (period: {period})..."):
                 ticker = yf.Ticker(ticker_symbol)
-                # auto_adjust=True automatically adjusts prices for splits and dividends
-                hist_df = ticker.history(period=period, auto_adjust=True, timeout=15)
+                hist_df_yf = ticker.history(period=period, auto_adjust=True, timeout=15)
 
-            if hist_df.empty:
-                print(f"yfinance returned empty data for {ticker_symbol} with period '{period}'. Trying next period.")
-                continue # Try the next shorter period
-
-            # If data is found, process it
-            hist_df.reset_index(inplace=True)
-            hist_df.rename(columns={
-                'Date': 'Date',
-                'Open': 'Open',
-                'High': 'High',
-                'Low': 'Low',
-                'Close': 'Close', # 'Close' will be adjusted due to auto_adjust=True
-                'Volume': 'Volume'
-            }, inplace=True)
-
-            hist_df['Date'] = pd.to_datetime(hist_df['Date']).dt.date
-            required_cols = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
-            hist_df = hist_df[required_cols]
-            hist_df.sort_values(by='Date', ascending=True, inplace=True)
-            hist_df.reset_index(drop=True, inplace=True)
-            st.success(f"✅ Successfully loaded historical data for {ticker_symbol} using period '{period}'.")
-            return hist_df # Return on first successful load
+            if not hist_df_yf.empty:
+                hist_df_yf.reset_index(inplace=True)
+                hist_df_yf.rename(columns={
+                    'Date': 'Date',
+                    'Open': 'Open',
+                    'High': 'High',
+                    'Low': 'Low',
+                    'Close': 'Close',
+                    'Volume': 'Volume'
+                }, inplace=True)
+                hist_df_yf['Date'] = pd.to_datetime(hist_df_yf['Date']).dt.date
+                required_cols = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
+                hist_df = hist_df_yf[required_cols]
+                hist_df.sort_values(by='Date', ascending=True, inplace=True)
+                hist_df.reset_index(drop=True, inplace=True)
+                st.success(f"✅ Successfully loaded historical data for {ticker_symbol} using yfinance (period: '{period}').")
+                return hist_df # Return on first successful yfinance load
+            else:
+                print(f"yfinance returned empty data for {ticker_symbol} with period '{period}'. Trying next yfinance period.")
+                continue
 
         except requests.exceptions.RequestException as req_err:
-            # This catches network-related errors from 'requests' (used by yfinance internally)
-            st.warning(f"⚠️ Network error while fetching {ticker_symbol} for period '{period}': {req_err}. Trying next period.")
-            print(f"DEBUG: Network error for {ticker_symbol} ({period}): {req_err}")
-            time.sleep(1) # Small delay before retrying period in case of temporary network issue
-            continue # Try next period on network errors
+            print(f"DEBUG: yfinance network error for {ticker_symbol} ({period}): {req_err}")
+            st.warning(f"⚠️ YFinance network error for {ticker_symbol} (period: {period}). Trying next yfinance period.")
+            time.sleep(1) # Small delay
+            continue
         except Exception as e:
-            # This catches the 'Expecting value' (JSON parsing) or 'No timezone' (data format)
-            # and other unexpected errors from yfinance/underlying data.
-            st.warning(f"⚠️ Failed to load historical data for {ticker_symbol} (period: {period}): {e}. This often indicates an issue with the data source's response, an invalid ticker, or temporary data unavailability. Trying next period.")
             print(f"DEBUG: Generic yfinance error for {ticker_symbol} ({period}): {e}")
-            time.sleep(1) # Small delay before retrying period
-            continue # Try next period on other exceptions
+            st.warning(f"⚠️ YFinance data issue for {ticker_symbol} (period: {period}): {e}. Trying next yfinance period.")
+            time.sleep(1) # Small delay
+            continue
 
-    # If all periods fail
-    st.error(f"❌ Failed to load historical data for {ticker_symbol} after multiple attempts and periods. Please double-check the ticker symbol (e.g., AAPL for US, RELIANCE.NS for NSE, TCS.BO for BSE for Indian stocks) or try again later. The data source might be temporarily unavailable for this symbol.")
+    # --- Attempt 2: Fallback to Alpha Vantage if yfinance completely failed ---
+    st.info(f"YFinance failed for {ticker_symbol}. Falling back to Alpha Vantage...")
+    if not alpha_vantage_api_key or alpha_vantage_api_key == "YOUR_ALPHA_VANTAGE_API_KEY":
+        st.error("❌ Alpha Vantage API key is not set. Cannot use Alpha Vantage as a fallback. Please update `app.py`.")
+        return pd.DataFrame()
+
+    alpha_vantage_url = "https://www.alphavantage.co/query"
+    params_av = {
+        "function": "TIME_SERIES_DAILY_ADJUSTED",
+        "symbol": ticker_symbol,
+        "outputsize": "full", # or "compact" for last 100 days
+        "apikey": alpha_vantage_api_key
+    }
+
+    try:
+        with st.spinner(f"Attempting to load historical data for {ticker_symbol} from Alpha Vantage... (This may take a moment due to API limits)"):
+            # Alpha Vantage free tier has a limit of 5 calls per minute.
+            # We add a sleep here before the call, assuming it's the only AV call in sequence,
+            # or it's the first call after a period of no AV calls.
+            # If multiple AV calls are made in quick succession, this might still hit limits.
+            time.sleep(15) # Wait 15 seconds to respect the rate limit (5 calls/min means 12s per call average)
+
+            response_av = requests.get(alpha_vantage_url, params=params_av, timeout=20)
+            response_av.raise_for_status()
+            data_av = response_av.json()
+
+            if "Time Series (Daily)" in data_av:
+                raw_data = data_av["Time Series (Daily)"]
+                df_av = pd.DataFrame.from_dict(raw_data, orient="index")
+                df_av.index = pd.to_datetime(df_av.index)
+                df_av.sort_index(inplace=True)
+
+                # Rename columns and convert to appropriate types
+                df_av.columns = [col.split(". ")[1].replace(" ", "_") for col in df_av.columns]
+                df_av = df_av.rename(columns={'adjusted_close': 'Close', 'volume': 'Volume'}) # Adjusted Close is 'Close'
+                df_av['Open'] = pd.to_numeric(df_av['open'], errors='coerce')
+                df_av['High'] = pd.to_numeric(df_av['high'], errors='coerce')
+                df_av['Low'] = pd.to_numeric(df_av['low'], errors='coerce')
+                df_av['Close'] = pd.to_numeric(df_av['Close'], errors='coerce')
+                df_av['Volume'] = pd.to_numeric(df_av['Volume'], errors='coerce')
+                
+                df_av.reset_index(inplace=True)
+                df_av.rename(columns={'index': 'Date'}, inplace=True)
+                df_av['Date'] = df_av['Date'].dt.date
+
+                required_cols = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
+                hist_df = df_av[required_cols].dropna().reset_index(drop=True) # Drop any NaNs introduced by conversion
+
+                if not hist_df.empty:
+                    st.success(f"✅ Successfully loaded historical data for {ticker_symbol} using Alpha Vantage.")
+                    return hist_df
+                else:
+                    st.warning(f"⚠️ Alpha Vantage returned empty or malformed data for {ticker_symbol} after processing. No historical data available.")
+
+            elif "Error Message" in data_av:
+                st.error(f"❌ Alpha Vantage API Error for {ticker_symbol}: {data_av['Error Message']}. Please check your API key or usage limits.")
+            else:
+                st.error(f"❌ Alpha Vantage returned unexpected data format for {ticker_symbol}.")
+
+    except requests.exceptions.HTTPError as http_err:
+        if http_err.response.status_code == 429: # Alpha Vantage specific rate limit
+            st.error(f"❌ Alpha Vantage API rate limit hit for {ticker_symbol}. Please wait at least 1 minute before trying another stock.")
+        elif http_err.response.status_code in [401, 403]:
+            st.error("❌ Alpha Vantage API key is invalid or unauthorized. Please check your ALPHA_VANTAGE_API_KEY in app.py.")
+        else:
+            st.error(f"❌ Alpha Vantage HTTP error occurred: {http_err}. Status: {http_err.response.status_code}")
+    except requests.exceptions.ConnectionError as conn_err:
+        st.error(f"❌ Alpha Vantage Connection error: {conn_err}. Please check your internet connection.")
+    except requests.exceptions.Timeout as timeout_err:
+        st.error(f"❌ Alpha Vantage Request timed out. The server might be slow or unresponsive. Please try again.")
+    except json.JSONDecodeError as json_err:
+        st.error(f"❌ Alpha Vantage: Received invalid data from API. Please try again later. Error: {json_err}")
+    except Exception as e:
+        st.error(f"❌ An unexpected error occurred while fetching from Alpha Vantage: {e}")
+
+    # If both yfinance and Alpha Vantage fail
+    st.error(f"❌ Historical data for {ticker_symbol} could not be retrieved from any source. Please double-check the ticker symbol (e.g., AAPL for US, RELIANCE.NS for NSE, TCS.BO for BSE for Indian stocks) or try again later.")
     return pd.DataFrame()
 
 
@@ -190,20 +262,18 @@ def main():
                     unsafe_allow_html=True)
 
         # Load historical data first, as it's a prerequisite for multiple tabs
-        # This block now uses the enhanced load_historical_data
+        # This block now uses the enhanced load_historical_data with Alpha Vantage fallback
         if 'historical_data' not in st.session_state or st.session_state.historical_data is None or \
            st.session_state.historical_data.empty or \
            (hasattr(st.session_state.historical_data, 'name') and st.session_state.historical_data.name != ticker_to_analyze):
-            # The spinner is now handled inside load_historical_data for each period attempt
-            st.session_state.historical_data = load_historical_data(ticker_to_analyze)
+            st.session_state.historical_data = load_historical_data(ticker_to_analyze, ALPHA_VANTAGE_API_KEY)
             if not st.session_state.historical_data.empty:
                 st.session_state.historical_data.name = ticker_to_analyze # Store ticker with data
 
         hist_data_for_tabs = st.session_state.historical_data
 
         if hist_data_for_tabs.empty:
-            # If historical data is still empty after all attempts, show a final error and stop analysis
-            st.error(f"❌ Analysis cannot proceed for {ticker_to_analyze}: Historical data could not be retrieved. Please check the ticker symbol and try again.")
+            st.error(f"❌ Analysis cannot proceed for {ticker_to_analyze}: Historical data could not be retrieved from any source. Please verify the ticker or try again later.")
             st.session_state.analyze_triggered = False # Reset trigger if data is missing
             return
 
@@ -240,4 +310,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
