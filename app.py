@@ -5,10 +5,10 @@ import warnings
 import time
 import requests
 import json
-import yfinance as yf # Import yfinance for historical data
+import yfinance as yf # Primary for historical data
 
 # Import functions from your separate modules
-import pages.fmp_autocomplete as fmp_autocomplete # Retaining FMP for autocomplete
+import pages.fmp_autocomplete as fmp_autocomplete
 import pages.stock_summary as stock_summary
 import pages.financials as financials
 import pages.probabilistic_stock_model as probabilistic_stock_model
@@ -44,10 +44,10 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# API Keys
-NEWS_API_KEY = "874ba654bdcd4aa7b68f7367a907cc2f"
-# FMP API Key will now ONLY be used for symbol search/autocomplete and company name for news and financial statements
-FMP_API_KEY = "5C9DnMCAzYam2ZPjNpOxKLFxUiGhrJDD"
+# API Keys (IMPORTANT: REPLACE "YOUR_KEY_HERE" WITH YOUR ACTUAL KEYS)
+NEWS_API_KEY = "874ba654bdcd4aa7b68f7367a907cc2f" # Get your free key from newsapi.com
+FMP_API_KEY = "5C9DnMCAzYam2ZPjNpOxKLFxUiGhrJDD"     # Get your free key from financialmodelingprep.com
+GEMINI_API_KEY = "AIzaSyAK8BevJ1wIrwMoYDsnCLQXdZlFglF92WE" # IMPORTANT: Get your key from Google Cloud Console (enable Generative Language API)
 
 # --- Custom CSS and Font Loading ---
 def load_css(file_path):
@@ -64,90 +64,67 @@ st.markdown(
 load_css("assets/style.css")
 
 
-# --- Common Data Loading & Feature Engineering Functions ---
+# --- Historical Data Loading (yfinance) - ENHANCED ROBUSTNESS ---
 @st.cache_data(ttl=3600, show_spinner=False)  # Cache historical data for 1 hour
 def load_historical_data(ticker_symbol):
     """
     Loads historical stock data using yfinance.
-    This is generally more reliable for historical OHLCV data across many exchanges.
+    Attempts to fetch max historical data, with fallbacks for shorter periods if max fails.
     """
     if not ticker_symbol:
         return pd.DataFrame()
 
-    try:
-        # yfinance automatically handles common ticker formats like TCS.NS, RELIANCE.BO, AAPL
-        ticker = yf.Ticker(ticker_symbol)
-        # Fetch max historical data available
-        hist_df = ticker.history(period="max") 
+    periods_to_try = ["max", "5y", "2y", "1y", "6mo", "3mo", "1mo"] # Ordered from longest to shortest
 
-        if hist_df.empty:
-            st.warning(f"⚠️ No historical data found for {ticker_symbol} via yfinance. Please check the ticker symbol and its exchange suffix (e.g., .NS for NSE, .BO for BSE for Indian stocks).")
-            return pd.DataFrame()
-        
-        # Reset index to make 'Date' a column
-        hist_df.reset_index(inplace=True)
-        
-        # Rename columns to match expected format
-        hist_df.rename(columns={
-            'Date': 'Date',
-            'Open': 'Open',
-            'High': 'High',
-            'Low': 'Low',
-            'Close': 'Close',
-            'Volume': 'Volume',
-            'Adj Close': 'Adjusted_Close'
-        }, inplace=True)
+    for period in periods_to_try:
+        try:
+            # Use st.info within spinner to show progress to user
+            with st.spinner(f"Attempting to load historical data for {ticker_symbol} (period: {period})..."):
+                ticker = yf.Ticker(ticker_symbol)
+                # auto_adjust=True automatically adjusts prices for splits and dividends
+                hist_df = ticker.history(period=period, auto_adjust=True, timeout=15)
 
-        # Ensure 'Date' is datetime and then convert to date object for consistency
-        hist_df['Date'] = pd.to_datetime(hist_df['Date']).dt.date
-        
-        # Keep only required columns and sort
-        required_cols = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
-        hist_df = hist_df[required_cols]
-        hist_df.sort_values(by='Date', ascending=True, inplace=True)
-        hist_df.reset_index(drop=True, inplace=True)
+            if hist_df.empty:
+                print(f"yfinance returned empty data for {ticker_symbol} with period '{period}'. Trying next period.")
+                continue # Try the next shorter period
 
-        return hist_df
+            # If data is found, process it
+            hist_df.reset_index(inplace=True)
+            hist_df.rename(columns={
+                'Date': 'Date',
+                'Open': 'Open',
+                'High': 'High',
+                'Low': 'Low',
+                'Close': 'Close', # 'Close' will be adjusted due to auto_adjust=True
+                'Volume': 'Volume'
+            }, inplace=True)
 
-    except Exception as e:
-        st.error(f"❌ Error loading historical data for {ticker_symbol} from yfinance: {e}. Please check the ticker symbol or try again later.")
-        return pd.DataFrame()
+            hist_df['Date'] = pd.to_datetime(hist_df['Date']).dt.date
+            required_cols = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
+            hist_df = hist_df[required_cols]
+            hist_df.sort_values(by='Date', ascending=True, inplace=True)
+            hist_df.reset_index(drop=True, inplace=True)
+            st.success(f"✅ Successfully loaded historical data for {ticker_symbol} using period '{period}'.")
+            return hist_df # Return on first successful load
 
-@st.cache_data(show_spinner=False)
-def add_common_features(hist):
-    """Adds various technical indicators as features common to multiple modules."""
-    df = hist.copy()
-    # Ensure 'Close' column is numeric for calculations
-    df['Close'] = pd.to_numeric(df['Close'], errors='coerce')
-    df['Volume'] = pd.to_numeric(df['Volume'], errors='coerce')
-    df['High'] = pd.to_numeric(df['High'], errors='coerce')
-    df['Low'] = pd.to_numeric(df['Low'], errors='coerce')
+        except requests.exceptions.RequestException as req_err:
+            # This catches network-related errors from 'requests' (used by yfinance internally)
+            st.warning(f"⚠️ Network error while fetching {ticker_symbol} for period '{period}': {req_err}. Trying next period.")
+            print(f"DEBUG: Network error for {ticker_symbol} ({period}): {req_err}")
+            time.sleep(1) # Small delay before retrying period in case of temporary network issue
+            continue # Try next period on network errors
+        except Exception as e:
+            # This catches the 'Expecting value' (JSON parsing) or 'No timezone' (data format)
+            # and other unexpected errors from yfinance/underlying data.
+            st.warning(f"⚠️ Failed to load historical data for {ticker_symbol} (period: {period}): {e}. This often indicates an issue with the data source's response, an invalid ticker, or temporary data unavailability. Trying next period.")
+            print(f"DEBUG: Generic yfinance error for {ticker_symbol} ({period}): {e}")
+            time.sleep(1) # Small delay before retrying period
+            continue # Try next period on other exceptions
 
-    df['Return_1d'] = df['Close'].pct_change()
-    df['MA10'] = df['Close'].rolling(window=10).mean()
-    df['MA50'] = df['Close'].rolling(window=50).mean()
-    df['Volatility'] = df['Close'].rolling(window=10).std()
-    df['RSI'] = compute_rsi(df['Close'], 14)
-    df['Volume_MA5'] = df['Volume'].rolling(window=5).mean()
-    df['High_Low_Diff'] = (df['High'] - df['Low']) / df['Close']
-    df['Target'] = (df['Close'].shift(-1) > df['Close']).astype(int)  # 1 = up, 0 = down
-    df.dropna(inplace=True)
-    return df
+    # If all periods fail
+    st.error(f"❌ Failed to load historical data for {ticker_symbol} after multiple attempts and periods. Please double-check the ticker symbol (e.g., AAPL for US, RELIANCE.NS for NSE, TCS.BO for BSE for Indian stocks) or try again later. The data source might be temporarily unavailable for this symbol.")
+    return pd.DataFrame()
 
-
-@st.cache_data(show_spinner=False)
-def compute_rsi(series, period=14):
-    """Computes the Relative Strength Index (RSI)."""
-    delta = series.diff()
-    gain = delta.where(delta > 0, 0.0)
-    loss = -delta.where(delta < 0, 0.0)
-    # Handle division by zero: if avg_loss is 0, rs becomes infinity, RSI becomes 100
-    avg_gain = gain.rolling(window=period).mean()
-    avg_loss = loss.rolling(window=period).mean()
-    
-    rs = np.where(avg_loss == 0, np.inf, avg_gain / avg_loss)
-    
-    return 100 - (100 / (1 + rs))
 
 # --- Streamlit Application Main Layout ---
 def main():
@@ -158,7 +135,6 @@ def main():
         </div>
     """, unsafe_allow_html=True)
 
-    # --- Centralized Stock Ticker Input and Autocomplete ---
     st.markdown("<h3>Enter a Stock Ticker to Begin Analysis</h3>", unsafe_allow_html=True)
 
     if 'current_ticker' not in st.session_state:
@@ -166,17 +142,22 @@ def main():
     if 'analyze_triggered' not in st.session_state:
         st.session_state.analyze_triggered = False
 
+    ticker_input_key = "main_ticker_search_input"
+    ticker_input_value = st.session_state.current_ticker
+
     ticker_input = st.text_input(
         "Search Stock Ticker (e.g., AAPL, RELIANCE.NS, TCS.BO)",
-        value=st.session_state.current_ticker,
-        key="main_ticker_search",
+        value=ticker_input_value,
+        key=ticker_input_key,
         help="Type a few letters to see suggestions. Press Enter to analyze. For Indian stocks, use .NS for NSE (e.g., RELIANCE.NS) and .BO for BSE (e.g., TCS.BO)."
     )
 
     suggestions = []
     if ticker_input:
-        # Use FMP for autocomplete with your key
-        suggestions = fmp_autocomplete.fetch_fmp_suggestions(ticker_input, api_key=FMP_API_KEY)
+        if FMP_API_KEY == "YOUR_FMP_KEY":
+            st.warning("⚠️ FMP_API_KEY is not set. Autocomplete suggestions may be limited or unavailable. Please update `app.py`.")
+        else:
+            suggestions = fmp_autocomplete.fetch_fmp_suggestions(ticker_input, api_key=FMP_API_KEY)
 
     if suggestions:
         st.markdown("<h5>Suggestions:</h5>", unsafe_allow_html=True)
@@ -187,7 +168,7 @@ def main():
             for i, suggestion in enumerate(suggestions):
                 if i < len(cols):
                     with cols[i]:
-                        suggested_ticker = suggestion.split(' - ')[0]
+                        suggested_ticker = suggestion.split(' - ')[0].strip().upper()
                         if st.button(suggestion, key=f"suggestion_{i}"):
                             st.session_state.current_ticker = suggested_ticker
                             st.session_state.analyze_triggered = True
@@ -195,7 +176,7 @@ def main():
 
     if st.button("🚀 Analyze Stock", key="analyze_button", type="primary"):
         if ticker_input:
-            st.session_state.current_ticker = ticker_input.split(' - ')[0]
+            st.session_state.current_ticker = ticker_input.split(' - ')[0].strip().upper()
             st.session_state.analyze_triggered = True
         else:
             st.warning("Please enter a stock ticker to analyze.")
@@ -205,41 +186,53 @@ def main():
     if st.session_state.analyze_triggered and st.session_state.current_ticker:
         ticker_to_analyze = st.session_state.current_ticker
 
-        st.markdown(f"<h2 class='analysis-header'>Comprehensive Analysis for {ticker_to_analyze.upper()}</h2>",
+        st.markdown(f"<h2 class='analysis-header'>Comprehensive Analysis for {ticker_to_analyze}</h2>",
                     unsafe_allow_html=True)
+
+        # Load historical data first, as it's a prerequisite for multiple tabs
+        # This block now uses the enhanced load_historical_data
+        if 'historical_data' not in st.session_state or st.session_state.historical_data is None or \
+           st.session_state.historical_data.empty or \
+           (hasattr(st.session_state.historical_data, 'name') and st.session_state.historical_data.name != ticker_to_analyze):
+            # The spinner is now handled inside load_historical_data for each period attempt
+            st.session_state.historical_data = load_historical_data(ticker_to_analyze)
+            if not st.session_state.historical_data.empty:
+                st.session_state.historical_data.name = ticker_to_analyze # Store ticker with data
+
+        hist_data_for_tabs = st.session_state.historical_data
+
+        if hist_data_for_tabs.empty:
+            # If historical data is still empty after all attempts, show a final error and stop analysis
+            st.error(f"❌ Analysis cannot proceed for {ticker_to_analyze}: Historical data could not be retrieved. Please check the ticker symbol and try again.")
+            st.session_state.analyze_triggered = False # Reset trigger if data is missing
+            return
 
         tab_summary, tab_financials, tab_probabilistic, tab_forecast, tab_news = st.tabs([
             "Company Overview", "Financials", "Probabilistic Models", "Forecasting", "News Sentiment"
         ])
 
-        if 'historical_data' not in st.session_state or st.session_state.historical_data is None or st.session_state.historical_data.empty or (hasattr(st.session_state.historical_data, 'name') and st.session_state.historical_data.name != ticker_to_analyze):
-            with st.spinner(f"Loading historical data for {ticker_to_analyze.upper()}..."):
-                # Call load_historical_data using yfinance
-                st.session_state.historical_data = load_historical_data(ticker_to_analyze)
-                if not st.session_state.historical_data.empty:
-                    st.session_state.historical_data.name = ticker_to_analyze
-
-        hist_data_for_tabs = st.session_state.historical_data
-
-        if hist_data_for_tabs.empty:
-            st.error(f"❌ Failed to load historical data for {ticker_to_analyze}. Please check the ticker symbol. Some analysis tabs might not function correctly.")
-            st.session_state.analyze_triggered = False
-            return
-
+        # --- Pass relevant data and API keys to each module ---
         with tab_summary:
-            # Pass FMP API key for company info fallback/augmentation
-            stock_summary.display_stock_summary(ticker_to_analyze, api_key=FMP_API_KEY)
+            if FMP_API_KEY == "YOUR_FMP_KEY":
+                st.warning("⚠️ FMP_API_KEY is not set. Company overview might be incomplete (relying solely on yfinance) and financial data/news company name lookup will be unavailable.")
+            if GEMINI_API_KEY == "YOUR_GEMINI_API_KEY":
+                st.warning("⚠️ GEMINI_API_KEY is not set. AI-powered company insights will be unavailable. Please update `app.py`.")
+            stock_summary.display_stock_summary(ticker_to_analyze, fmp_api_key=FMP_API_KEY, gemini_api_key=GEMINI_API_KEY)
 
         with tab_financials:
-            # Pass FMP API key for financials
-            financials.display_financials(ticker_to_analyze, api_key=FMP_API_KEY)
+            if FMP_API_KEY == "YOUR_FMP_KEY":
+                st.error("❌ FMP_API_KEY is not set. Financial statements cannot be loaded. Please set your FMP_API_KEY in app.py.")
+            else:
+                financials.display_financials(ticker_to_analyze, fmp_api_key=FMP_API_KEY)
 
         with tab_probabilistic:
             probabilistic_stock_model.display_probabilistic_models(hist_data_for_tabs)
 
         with tab_news:
-            # Pass the FMP API key to news_sentiment for company name lookup
-            news_sentiment.display_news_sentiment(ticker_to_analyze, news_api_key=NEWS_API_KEY, fmp_api_key=FMP_API_KEY)
+            if NEWS_API_KEY == "YOUR_NEWSAPI_KEY" or FMP_API_KEY == "YOUR_FMP_KEY":
+                st.error("❌ NewsAPI_KEY or FMP_API_KEY is not set. News sentiment analysis will not work. Please set your API keys in app.py.")
+            else:
+                news_sentiment.display_news_sentiment(ticker_to_analyze, news_api_key=NEWS_API_KEY, fmp_api_key=FMP_API_KEY)
 
         with tab_forecast:
             forecast_module.display_forecasting(hist_data_for_tabs)
