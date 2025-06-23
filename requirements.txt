@@ -13,3 +13,7 @@ prophet
 statsmodels
 tensorflow
 textblob
+wheel
+setuptools
+requests
+streamlit
