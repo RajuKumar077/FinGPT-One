@@ -1,595 +1,228 @@
-/* Import Google Font - Inter for a clean, modern, Google-like typography */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-
-/* --- Base Variables for Theming (Can be controlled by JS for Day/Night) --- */
-/* Default to Dark Theme */
-:root {
-    --bg-primary: #1A1A1D; /* Deepest dark background */
-    --bg-primary-rgb: 26, 26, 29; /* RGB components for rgba() */
-    --bg-secondary: #242426; /* Slightly lighter dark for accents/cards */
-    --bg-secondary-rgb: 36, 36, 38; /* RGB components for rgba() */
-    --glass-bg-alpha: 0.3; /* Transparency for glass effect */
-    --glass-border-alpha: 0.2; /* Transparency for glass border */
-    --glass-blur: 25px; /* Amount of blur for glass effect (large) */
-    --glass-blur-small: 12px; /* Amount of blur for smaller elements */
-    --text-primary: #E6E6EA; /* Light text for dark backgrounds */
-    --text-primary-rgb: 230, 230, 234; /* RGB components for rgba() */
-    --text-secondary: #B0B0B0; /* Muted text */
-    --accent-blue: #007AFF; /* Apple Blue */
-    --accent-blue-light: #0A84FF; /* Lighter Apple Blue */
-    --accent-green: #34C759; /* Apple Green */
-    --accent-yellow: #FFD424; /* Apple Yellow */
-    --accent-red: #FF3B30; /* Apple Red */
-    --shadow-strong: rgba(0,0,0,0.6);
-    --shadow-medium: rgba(0,0,0,0.4);
-    --shadow-light: rgba(0,0,0,0.2);
-    --card-hover-translateY: -7px;
-}
-
-/* Light Theme Variables */
-body.light-theme {
-    --bg-primary: #F0F2F6; /* Light background */
-    --bg-primary-rgb: 240, 242, 246;
-    --bg-secondary: #FFFFFF; /* White for cards */
-    --bg-secondary-rgb: 255, 255, 255;
-    --glass-bg-alpha: 0.8; /* More opaque glass for light theme */
-    --glass-border-alpha: 0.4; /* More visible border for light theme */
-    --glass-blur: 15px; /* Slightly less blur for light theme */
-    --glass-blur-small: 8px; /* Slightly less blur for smaller elements in light theme */
-    --text-primary: #1C1C1E; /* Dark text for light backgrounds */
-    --text-primary-rgb: 28, 28, 30;
-    --text-secondary: #6A6A6F; /* Muted dark text */
-    --accent-blue: #007AFF;
-    --accent-blue-light: #0A84FF;
-    --accent-green: #34C759;
-    --accent-yellow: #FFC007; /* Adjusted yellow for light theme */
-    --accent-red: #FF3B30;
-    --shadow-strong: rgba(0,0,0,0.2);
-    --shadow-medium: rgba(0,0,0,0.15);
-    --shadow-light: rgba(0,0,0,0.08);
-    --card-hover-translateY: -5px;
-}
-
-
-/* --- Global Styles --- */
+/* General Body and Font Styles */
 body {
-    font-family: 'Inter', sans-serif !important;
-    background-color: var(--bg-primary);
-    color: var(--text-primary);
-    line-height: 1.6;
+    font-family: 'Inter', sans-serif;
+    color: #E0E0E0; /* Light grey text for dark theme */
+    background-color: #1a1a2e; /* Dark background */
     margin: 0;
     padding: 0;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    font-size: 16px; /* Base font size */
-    transition: background-color 0.5s ease, color 0.5s ease; /* Smooth theme transition */
 }
 
-/* Streamlit Main App Container */
+/* Streamlit specific overrides */
 .stApp {
-    background-color: var(--bg-primary);
-    color: var(--text-primary);
+    background-color: #1a1a2e;
+    color: #E0E0E0;
 }
 
-/* --- Headings --- */
-h1, h2, h3, h4, h5, h6 {
-    color: var(--accent-blue);
-    font-weight: 700;
-    margin-bottom: 0.8em;
-    line-height: 1.2;
-}
-
-/* Main app title (H1) */
-.main-header h1 {
-    color: white; /* Always white for strong contrast on header */
-    font-size: 3.5em;
-    letter-spacing: -0.02em;
-    text-shadow: 0 4px 20px var(--shadow-strong); /* Deeper shadow */
-    font-weight: 800;
-}
-
-/* Main app description (P below H1) */
-.main-header p {
-    color: rgba(255,255,255,0.85);
-    font-size: 1.15em;
-    margin-top: 10px;
-    font-weight: 500;
-}
-
-/* Section titles (H3 - like "Key Valuation Metrics") */
-.section-title {
-    color: var(--accent-blue-light);
+/* Main header styling */
+.main-header {
+    background-color: #1a1a2e;
+    padding: 30px 0;
     text-align: center;
-    margin-top: 45px;
-    margin-bottom: 30px;
-    font-size: 2.2em;
-    padding-bottom: 15px;
-    border-bottom: 2px solid rgba(0, 122, 255, 0.25); /* Dynamic border color */
-    text-shadow: 0 1px 8px var(--shadow-light); /* Enhanced shadow */
+    border-bottom: 2px solid #2e2e4a;
+    margin-bottom: 40px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
 }
 
-/* Sub-section titles (H4 - like "Business Summary") */
-.section-subtitle, h4 {
-    color: var(--accent-blue); /* Stronger sub-header color */
-    margin-top: 35px;
-    margin-bottom: 20px;
-    font-size: 1.6em;
+.main-header h1 {
+    font-size: 3.5em;
+    color: #00bcd4; /* Accent color */
+    margin: 0;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+.main-header p {
+    font-size: 1.2em;
+    color: #b0bec5; /* Lighter grey for subtitle */
+    margin-top: 10px;
+}
+
+/* Section titles */
+h1, h2, h3, h4, h5, h6 {
+    color: #E0E0E0;
     font-weight: 600;
 }
 
-/* --- Layout & Containers --- */
-.main-header {
-    background: linear-gradient(135deg, rgba(var(--bg-primary-rgb), var(--glass-bg-alpha)), rgba(var(--bg-secondary-rgb), var(--glass-bg-alpha))); /* Deep blue glass base */
-    backdrop-filter: blur(var(--glass-blur)) saturate(180%);
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(180%);
-    border: 1px solid rgba(var(--text-primary-rgb), var(--glass-border-alpha)); /* Dynamic border */
-    padding: 55px 35px;
-    border-radius: 28px; /* More rounded */
-    margin-bottom: 55px;
-    text-align: center;
-    color: white;
-    box-shadow: 0 20px 60px var(--shadow-strong), inset 0 0 15px rgba(255,255,255,0.05); /* Deeper, subtle inner shadow */
-    overflow: hidden;
-    position: relative;
-    transition: all 0.6s ease-in-out; /* Smoother transition for header */
-}
-
-/* Subtle background animation for header (optional, for ultra-premium) */
-@keyframes backgroundPan {
-    0% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
-    100% { background-position: 0% 50%; }
-}
-/* Apply animation if desired: */
-/* .main-header {
-    background-size: 200% 200%;
-    animation: backgroundPan 15s ease infinite;
-} */
-
-
 .analysis-header {
-    color: var(--accent-blue);
+    color: #00bcd4;
     text-align: center;
-    margin-top: 55px;
-    margin-bottom: 40px;
-    font-size: 2.8em;
-    text-shadow: 0 3px 10px var(--shadow-medium);
-    font-weight: 800;
-    transition: all 0.4s ease;
+    margin-top: 40px;
+    margin-bottom: 30px;
+    font-size: 2.5em;
+    border-bottom: 1px solid #2e2e4a;
+    padding-bottom: 15px;
 }
 
-/* --- Input Fields --- */
-.stTextInput > div > div > input,
-.stSlider > div > div > div > div > div,
-.stNumberInput > div > div > input,
-.stSelectbox > div > div > div {
-    background-color: rgba(var(--bg-secondary-rgb), var(--glass-bg-alpha)); /* Dynamic glass background */
-    backdrop-filter: blur(var(--glass-blur-small)); /* Use small blur for inputs */
-    -webkit-backdrop-filter: blur(var(--glass-blur-small));
-    color: var(--text-primary);
-    border: 1px solid rgba(var(--text-primary-rgb), var(--glass-border-alpha)); /* Dynamic glass border */
-    border-radius: 12px;
-    padding: 12px 18px;
-    box-shadow: inset 0 2px 8px var(--shadow-medium); /* Deeper inset shadow */
-    font-size: 1.0em;
-    transition: all 0.3s ease-in-out; /* Smooth transition */
+.section-title {
+    color: #00bcd4;
+    font-size: 2em;
+    margin-top: 40px;
+    margin-bottom: 20px;
+    border-bottom: 1px solid #3d3d5c;
+    padding-bottom: 10px;
 }
 
-.stTextInput > div > div > input:focus,
-.stNumberInput > div > div > input:focus,
-.stSelectbox > div > div > div:focus-within {
-    border-color: var(--accent-blue);
-    box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.4), inset 0 2px 8px rgba(0,0,0,0.4); /* Enhanced focus shadow (using direct RGB) */
-    background-color: rgba(var(--bg-secondary-rgb), var(--glass-bg-alpha) * 1.2); /* Slightly more opaque on focus */
+.section-subtitle {
+    color: #b0bec5;
+    font-size: 1.5em;
+    margin-top: 30px;
+    margin-bottom: 15px;
 }
 
-/* --- Buttons --- */
+/* Input fields and buttons */
+.stTextInput > div > div > input {
+    background-color: #2e2e4a;
+    border: 1px solid #3d3d5c;
+    color: #E0E0E0;
+    border-radius: 8px;
+    padding: 10px 15px;
+}
+
 .stButton > button {
-    background-color: var(--accent-blue);
+    background-color: #00bcd4;
     color: white;
     border: none;
     padding: 12px 25px;
-    border-radius: 12px; /* Slightly more rounded */
+    border-radius: 8px;
     font-weight: 600;
-    font-size: 1.0em;
-    letter-spacing: 0.01em;
-    box-shadow: 0 6px 20px rgba(0, 122, 255, 0.4); /* Stronger shadow (using direct RGB) */
+    transition: background-color 0.3s ease;
     cursor: pointer;
-    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); /* Enhanced cubic-bezier transition */
-    position: relative;
-    overflow: hidden; /* For subtle effects */
 }
 
 .stButton > button:hover {
-    background-color: var(--accent-blue-light);
-    box-shadow: 0 10px 30px rgba(0, 122, 255, 0.6); /* Stronger hover shadow (using direct RGB) */
-    transform: translateY(-3px); /* More noticeable lift */
+    background-color: #0097a7;
 }
 
-/* Primary button */
-.stButton.primary > button {
-    background-color: var(--accent-green);
-    box-shadow: 0 6px 20px rgba(52, 199, 89, 0.4); /* Use direct RGB here as no --accent-green-rgb */
+.stButton > button.primary {
+    background-color: #4CAF50; /* Green for primary action */
 }
 
-.stButton.primary > button:hover {
-    background-color: var(--accent-green); /* Keep green, perhaps slight darken */
-    filter: brightness(1.1); /* Subtle brightness increase */
-    box-shadow: 0 10px 30px rgba(52, 199, 89, 0.6); /* Use direct RGB here */
+.stButton > button.primary:hover {
+    background-color: #45a049;
 }
 
-/* --- Tabs --- */
-.stTabs [data-baseweb="tab-list"] button {
-    background-color: rgba(var(--bg-secondary-rgb), var(--glass-bg-alpha) * 0.8); /* Slightly less opaque for tabs */
-    backdrop-filter: blur(18px); /* More blur for tabs */
-    -webkit-backdrop-filter: blur(18px);
-    color: var(--text-primary);
-    border-radius: 15px 15px 0 0; /* More rounded top corners */
-    margin-right: 10px; /* More spacing between tabs */
-    font-size: 1.05em;
-    padding: 16px 28px; /* More generous padding */
-    box-shadow: 0 4px 15px var(--shadow-medium);
-    border: 1px solid rgba(var(--text-primary-rgb), var(--glass-border-alpha));
-    border-bottom: none;
-    transition: all 0.4s ease-out; /* Smoother transition */
+/* Tabs */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 10px; /* Space between tabs */
+    margin-bottom: 20px;
 }
 
-.stTabs [data-baseweb="tab-list"] button:hover {
-    background-color: rgba(var(--bg-secondary-rgb), var(--glass-bg-alpha)); /* More opaque glass on hover */
-    color: var(--accent-blue-light);
-    border-color: rgba(var(--text-primary-rgb), var(--glass-border-alpha) * 1.5);
-    box-shadow: 0 6px 20px var(--shadow-strong);
+.stTabs [data-baseweb="tab"] {
+    background-color: #2e2e4a;
+    color: #b0bec5;
+    border-radius: 8px 8px 0 0;
+    padding: 10px 20px;
+    font-weight: 600;
+    transition: background-color 0.3s ease, color 0.3s ease;
 }
 
-.stTabs [data-baseweb="tab-list"] button[aria-selected="true"] {
-    background-color: rgba(var(--bg-secondary-rgb), var(--glass-bg-alpha) * 1.2); /* Active tab, more opaque */
-    color: var(--accent-blue);
-    border-bottom: 4px solid var(--accent-blue); /* Thicker vibrant border */
-    font-weight: 700;
-    box-shadow: 0 6px 20px rgba(0, 122, 255, 0.4); /* Blue shadow for active tab (using direct RGB) */
-    border-color: rgba(0, 122, 255, 0.5); /* Blue border for active tab (using direct RGB) */
+.stTabs [data-baseweb="tab"]:hover {
+    background-color: #3d3d5c;
+    color: #E0E0E0;
 }
 
-/* --- Dataframes --- */
-.stDataFrame {
-    background-color: rgba(var(--bg-secondary-rgb), var(--glass-bg-alpha));
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
-    color: var(--text-primary);
-    border-radius: 20px; /* More rounded */
-    box-shadow: 0 8px 30px var(--shadow-medium);
-    border: 1px solid rgba(var(--text-primary-rgb), var(--glass-border-alpha));
-    overflow: hidden;
-    transition: all 0.4s ease;
+.stTabs [aria-selected="true"] {
+    background-color: #00bcd4;
+    color: white;
+    border-bottom: 3px solid #00bcd4;
 }
 
-/* Table headers within dataframes */
-.stDataFrame .header-row {
-    background-color: rgba(var(--bg-secondary-rgb), var(--glass-bg-alpha) * 1.2) !important; /* Slightly more opaque header */
-    color: var(--text-secondary) !important;
+.stTabs [aria-selected="true"]:hover {
+    background-color: #0097a7;
+    color: white;
 }
 
-/* --- Metric Cards (General, used in Forecast & Sentiment) --- */
+/* Metrics Cards */
 .metric-card {
-    background: rgba(var(--bg-secondary-rgb), var(--glass-bg-alpha));
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
-    padding: 25px; /* More padding */
-    border-radius: 20px;
-    margin-bottom: 25px;
-    box-shadow: 0 10px 35px var(--shadow-medium);
-    border: 1px solid rgba(var(--text-primary-rgb), var(--glass-border-alpha));
-    transition: transform 0.4s ease-out, box-shadow 0.4s ease-out, border-color 0.4s ease-out; /* Smooth transition */
+    background-color: #2e2e4a;
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
     text-align: center;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-}
-
-.metric-card:hover {
-    transform: translateY(var(--card-hover-translateY)); /* Dynamic hover lift */
-    box-shadow: 0 15px 50px var(--shadow-strong);
-    border-color: rgba(0, 122, 255, 0.4); /* Using direct RGB */
+    border: 1px solid #3d3d5c;
 }
 
 .metric-card .card-icon {
-    font-size: 3.0em; /* Larger icon */
-    margin: 0 0 12px 0; /* More margin */
-    color: var(--accent-yellow);
+    font-size: 3em;
+    margin-bottom: 10px;
+    color: #00bcd4;
 }
 
 .metric-card .card-title {
-    font-size: 0.95em; /* Slightly larger title */
-    margin: 6px 0;
-    opacity: 0.8;
-    color: var(--text-secondary);
-    font-weight: 500;
+    font-size: 1.1em;
+    color: #b0bec5;
+    margin-bottom: 5px;
 }
 
 .metric-card .card-value {
-    font-size: 2.0em; /* Larger value */
-    letter-spacing: -0.01em;
-    color: var(--text-primary);
+    font-size: 2em;
+    color: #E0E0E0;
     font-weight: 700;
 }
 
-/* --- News Cards --- */
+/* News Cards */
 .news-card {
-    background: rgba(var(--bg-secondary-rgb), var(--glass-bg-alpha));
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
-    padding: 25px;
-    border-radius: 20px;
-    margin-bottom: 25px;
-    box-shadow: 0 10px 35px var(--shadow-medium);
-    border: 1px solid rgba(var(--text-primary-rgb), var(--glass-border-alpha));
-    transition: transform 0.4s ease-out, box-shadow 0.4s ease-out, border-color 0.4s ease-out; /* Smooth transition */
-}
-
-.news-card:hover {
-    transform: translateY(var(--card-hover-translateY));
-    box-shadow: 0 15px 50px var(--shadow-strong);
-    border-color: rgba(10, 132, 255, 0.4); /* Using direct RGB for accent-blue-light */
-}
-
-.news-card h4 {
-    font-size: 1.15em;
-    font-weight: 600;
-    margin-bottom: 10px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
+    background-color: #2e2e4a;
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    border: 1px solid #3d3d5c;
 }
 
 .news-card h3 {
-    margin: 15px 0;
-    line-height: 1.4;
+    margin-top: 0;
+    margin-bottom: 15px;
 }
 
-.news-link {
+.news-card .news-link {
+    color: #00bcd4;
     text-decoration: none;
-    color: var(--accent-blue);
     font-weight: 600;
-    transition: color 0.3s ease;
 }
 
-.news-link:hover {
-    color: var(--accent-blue-light);
+.news-card .news-link:hover {
     text-decoration: underline;
 }
 
 .news-card span {
-    color: var(--text-secondary);
     font-size: 0.9em;
-    opacity: 0.9;
+    color: #b0bec5;
 }
 
-
-/* --- Spinner & Alerts --- */
-.stSpinner > div > div {
-    border-top-color: var(--accent-blue) !important;
-    border-left-color: var(--accent-blue) !important;
-}
-
-.stAlert > div {
-    border-radius: 15px; /* More rounded */
-    background-color: rgba(var(--bg-secondary-rgb), var(--glass-bg-alpha) * 1.5) !important; /* Slightly more opaque for alerts */
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    color: var(--text-primary) !important;
-    border-left: 8px solid; /* Thicker border */
-    box-shadow: 0 6px 20px var(--shadow-medium);
-    border-color: rgba(var(--text-primary-rgb), var(--glass-border-alpha) * 1.5) !important;
-    transition: all 0.3s ease;
-}
-.stAlert.info { border-left-color: var(--accent-blue) !important; }
-.stAlert.warning { border-left-color: var(--accent-yellow) !important; }
-.stAlert.error { border-left-color: var(--accent-red) !important; }
-
-
-/* --- General Text and Code Blocks --- */
-p, li, div, .stMarkdown, .stText {
-    color: var(--text-primary);
-    font-size: 1.0em;
+/* General markdown styles */
+p, li {
+    color: #C0C0C0;
     line-height: 1.6;
 }
 
-pre {
-    background-color: rgba(var(--bg-secondary-rgb), var(--glass-bg-alpha));
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border-radius: 15px;
-    padding: 20px;
-    border: 1px solid rgba(var(--text-primary-rgb), var(--glass-border-alpha));
-    box-shadow: inset 0 2px 8px var(--shadow-medium);
-    transition: all 0.3s ease;
-}
-
 code {
-    background-color: rgba(var(--bg-secondary-rgb), var(--glass-bg-alpha) * 1.2);
-    color: var(--text-secondary);
-    padding: 3px 6px;
-    border-radius: 6px;
-    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
+    background-color: #3d3d5c;
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: #ffcc00; /* Yellow for code */
 }
 
-/* Plotly charts backgrounds - NO CUSTOM CSS HERE, RELY ON PLOTLY'S DEFAULTS/PYTHON SETTINGS */
-.js-plotly-plot {
-    /* Completely reset these to ensure no CSS interference */
-    background-color: transparent !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-    border: none !important;
-    box-shadow: none !important;
-    border-radius: 0 !important;
-    overflow: visible !important;
-    padding: 0 !important;
-    margin: 0 !important;
+a {
+    color: #00bcd4;
+    text-decoration: none;
 }
 
-.js-plotly-plot .plotly .main-svg {
-    background-color: transparent !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-    border-radius: 0 !important;
-    padding: 0 !important;
-    margin: 0 !important;
+a:hover {
+    text-decoration: underline;
 }
 
-
-/* --- SPECIFIC STYLES FOR STOCK SUMMARY INFO BADGES (Now also Glassmorphism) --- */
-.info-badge {
-    background: rgba(var(--bg-secondary-rgb), var(--glass-bg-alpha));
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
-    border: 1px solid rgba(var(--text-primary-rgb), var(--glass-border-alpha));
-    border-radius: 20px; /* More rounded */
-    padding: 18px;
-    margin-bottom: 18px;
-    height: 125px;
-    box-shadow: 0 5px 18px var(--shadow-medium);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    transition: transform 0.4s ease-out, box-shadow 0.4s ease-out, border-color 0.4s ease-out; /* Smooth transition */
-    width: 100%;
+/* Adjust Streamlit specific elements for consistency */
+div.stAlert {
+    border-radius: 8px;
 }
 
-.info-badge:hover {
-    transform: translateY(var(--card-hover-translateY));
-    box-shadow: 0 10px 30px var(--shadow-strong);
-    border-color: rgba(0, 122, 255, 0.4); /* Using direct RGB */
+div.stSpinner > div {
+    color: #00bcd4;
 }
 
-.info-badge .badge-icon {
-    font-size: 2.8em;
-    margin-bottom: 10px;
-    line-height: 1;
-    color: var(--accent-yellow);
-}
-
-.info-badge .badge-label {
-    font-size: 0.85em;
-    margin-bottom: 5px;
-    color: var(--text-secondary);
-    font-weight: 500;
-    text-align: center;
-}
-
-.info-badge .badge-value {
-    font-size: 1.6em;
-    font-weight: 700;
-    color: var(--text-primary);
-    text-align: center;
-    word-wrap: break-word;
-    max-width: 100%;
-    line-height: 1.2;
-}
-
-/* Specific badge colors for status/health (border-left for visual cue) */
-.info-badge.success {
-    border-left: 6px solid var(--accent-green);
-}
-.info-badge.warning {
-    border-left: 6px solid var(--accent-yellow);
-}
-.info-badge.danger {
-    border-left: 6px solid var(--accent-red);
-}
-
-/* --- 52-Week Range Visualization - NO CUSTOM CSS HERE, RELY ON PYTHON/INLINE STYLES --- */
-/* The container for this visualization should be styled as a regular glassmorphism card */
-.range-container {
-    background: rgba(var(--bg-secondary-rgb), var(--glass-bg-alpha));
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
-    padding: 25px;
-    border-radius: 20px;
-    margin-top: 30px;
-    box-shadow: 0 8px 30px var(--shadow-medium);
-    border: 1px solid rgba(var(--text-primary-rgb), var(--glass-border-alpha));
-    position: relative;
-    overflow: hidden;
-    transition: all 0.4s ease;
-}
-
-.range-container .range-display-text {
-    color: var(--text-primary) !important;
-    font-weight: 500;
-    font-size: 1.0em;
-    margin-bottom: 18px;
-    text-align: center;
-}
-
-/* The progress bar track (explicitly not glass, needs contrast) */
-.progress-bar-track {
-    width: 100%;
-    height: 22px;
-    background-color: var(--text-secondary); /* Use muted text color for track to ensure visibility */
-    border-radius: 11px;
-    overflow: hidden;
-    position: relative;
-    box-shadow: inset 0 1px 6px rgba(0,0,0,0.3);
-    border: 1px solid rgba(var(--text-primary-rgb), 0.1);
-}
-
-/* The filled portion of the progress bar */
-.progress-bar-fill {
-    height: 100%;
-    background: linear-gradient(90deg, var(--accent-green), #6ACF7B); /* Vibrant green gradient */
-    border-radius: 11px;
-    transition: width 0.3s ease-out;
-}
-
-/* The draggable circle indicator (current price marker) */
-.progress-bar-handle {
-    position: absolute;
-    top: 50%;
-    transform: translateY(-50%) translateX(-50%);
-    width: 32px;
-    height: 32px;
-    background-color: white; /* Solid white for clear visibility */
-    border-radius: 50%;
-    border: 4px solid var(--accent-blue); /* Thicker, clear blue border */
-    box-shadow: 0 0 12px rgba(0, 122, 255, 0.9);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: black; /* Black text on white for contrast */
-    font-weight: bold;
-    z-index: 10;
-    transition: left 0.3s ease-out;
-}
-
-.progress-bar-handle span {
-    font-size: 0.75em;
-    line-height: 1;
-}
-
-/* Scrollbar Styling (Webkit - Chrome, Safari) */
-::-webkit-scrollbar {
-    width: 10px;
-}
-
-::-webkit-scrollbar-track {
-    background: rgba(var(--bg-primary-rgb), 0.5); /* Transparent track */
-    border-radius: 10px;
-}
-
-::-webkit-scrollbar-thumb {
-    background: rgba(var(--text-secondary), 0.5); /* Semi-transparent thumb */
-    border-radius: 10px;
-    border: 2px solid rgba(var(--bg-primary-rgb), 0.5); /* Border around thumb */
-}
-
-::-webkit-scrollbar-thumb:hover {
-    background: rgba(0, 122, 255, 0.7); /* Accent color on hover (direct RGB) */
-}
-
-/* Firefox Scrollbar */
-html {
-    scrollbar-color: rgba(var(--text-secondary), 0.5) rgba(var(--bg-primary-rgb), 0.5); /* thumb track */
-    scrollbar-width: thin;
+div.stProgress > div > div > div > div {
+    background-color: #00bcd4;
 }
