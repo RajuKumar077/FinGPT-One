@@ -10,7 +10,7 @@ def fetch_fmp_suggestions(query, api_key, retries=3, initial_delay=0.5):
     """
     if not query:
         return []
-    if not api_key or api_key == "YOUR_FMP_KEY": # Check for unset key
+    if not api_key or api_key == "5C9DnMCAzYam2ZPjNpOxKLFxUiGhrJDD": # Check for unset key
         return []
 
     base_url = "https://financialmodelingprep.com/api/v3/search"
