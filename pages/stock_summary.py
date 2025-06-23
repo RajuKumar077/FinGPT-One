@@ -10,7 +10,7 @@ def generate_llm_insight(company_name, description, industry, sector, gemini_api
     """
     Generates a concise AI-powered insight about the company using Google's Gemini API.
     """
-    if not gemini_api_key or gemini_api_key == "YOUR_GEMINI_API_KEY":
+    if not gemini_api_key or gemini_api_key == "AIzaSyAK8BevJ1wIrwMoYDsnCLQXdZlFglF92WE":
         return "AI-powered insight unavailable: GEMINI_API_KEY not set."
 
     # Construct a detailed prompt for the LLM
