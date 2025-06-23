@@ -6,6 +6,7 @@ import time
 import requests
 import json
 import yfinance as yf # Primary for historical data
+import os # Import os for path checking
 
 # Import functions from your separate modules
 import pages.fmp_autocomplete as fmp_autocomplete
@@ -65,12 +66,12 @@ st.markdown(
 load_css("assets/style.css")
 
 
-# --- Historical Data Loading (yfinance, Alpha Vantage, and FMP Fallback) ---
+# --- Historical Data Loading (yfinance, Alpha Vantage, FMP, and CSV Fallback) ---
 @st.cache_data(ttl=3600, show_spinner=False)  # Cache historical data for 1 hour
 def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
     """
-    Loads historical stock data, first attempting yfinance, then Alpha Vantage, then FMP (historical-chart/daily).
-    As a last resort for demonstration if all APIs fail, includes option to load from a local CSV.
+    Loads historical stock data, attempting yfinance, then Alpha Vantage, then FMP (historical-chart/daily).
+    As a guaranteed last resort, it will try to load from a local CSV file.
     """
     if not ticker_symbol:
         return pd.DataFrame()
@@ -85,7 +86,6 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
         try:
             with st.spinner(f"Attempting yfinance for {ticker_symbol} (period: {period})..."):
                 ticker = yf.Ticker(ticker_symbol)
-                # auto_adjust=True automatically adjusts prices for splits and dividends
                 hist_df_yf = ticker.history(period=period, auto_adjust=True, timeout=15)
 
             if not hist_df_yf.empty:
@@ -95,7 +95,7 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
                     'Open': 'Open',
                     'High': 'High',
                     'Low': 'Low',
-                    'Close': 'Close', # 'Close' will be adjusted due to auto_adjust=True
+                    'Close': 'Close',
                     'Volume': 'Volume'
                 }, inplace=True)
                 hist_df_yf['Date'] = pd.to_datetime(hist_df_yf['Date']).dt.date
@@ -113,13 +113,11 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
         except requests.exceptions.RequestException as req_err:
             print(f"DEBUG: yfinance network error for {ticker_symbol} ({period}): {req_err}")
             st.warning(f"⚠️ YFinance network error for {ticker_symbol} (period: {period}). Trying next yfinance period.")
-            time.sleep(1) # Small delay
-            continue
+            continue # Try next period on network errors
         except Exception as e:
             print(f"DEBUG: Generic yfinance error for {ticker_symbol} ({period}): {e}")
             st.warning(f"⚠️ YFinance data issue for {ticker_symbol} (period: {period}): {e}. This often indicates an issue with the data source's response, an invalid ticker, or temporary data unavailability. Trying next period.")
-            time.sleep(1) # Small delay
-            continue
+            continue # Try next period on other exceptions
 
     # --- Attempt 2: Fallback to Alpha Vantage if yfinance completely failed ---
     st.info(f"YFinance failed for {ticker_symbol}. Falling back to Alpha Vantage...")
@@ -180,6 +178,7 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
                         return hist_df
                     else:
                         st.warning(f"⚠️ Alpha Vantage returned empty or malformed data for {ticker_symbol} after processing. No historical data available.")
+                        print(f"DEBUG: Alpha Vantage empty/malformed data for {ticker_symbol} after processing.")
 
                 elif "Error Message" in data_av:
                     st.error(f"❌ Alpha Vantage API Error for {ticker_symbol}: {data_av['Error Message']}. Please check your API key or usage limits.")
@@ -212,12 +211,11 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
             st.error(f"❌ An unexpected error occurred while fetching from Alpha Vantage: {e}")
             print(f"DEBUG: Alpha Vantage Unexpected Error: {e}")
 
-    # --- Attempt 3: Fallback to Financial Modeling Prep (FMP) historical-chart if others failed ---
+    # --- Attempt 3: Fallback to Financial Modeling Prep (FMP) historical-chart/daily ---
     st.info(f"YFinance and Alpha Vantage failed for {ticker_symbol}. Falling back to Financial Modeling Prep (FMP) historical chart data...")
     if not fmp_api_key or fmp_api_key == "YOUR_FMP_KEY":
-        st.error("❌ FMP API key is not set. Cannot use FMP as a fallback for historical chart data. Please update `app.py`.")
+        st.error("❌ FMP API key is not set. Cannot use FMP as a fallback for historical chart data.")
     else:
-        # Try FMP historical-chart/daily endpoint
         fmp_historical_chart_url = f"https://financialmodelingprep.com/api/v3/historical-chart/daily/{ticker_symbol}"
         params_fmp_chart = {"apikey": fmp_api_key}
         
@@ -285,38 +283,47 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
             print(f"DEBUG: FMP (historical chart) Unexpected Error: {e}")
 
     # --- LAST RESORT: Load from a local CSV file if all API calls failed ---
-    # This block is here as a failsafe for demonstration purposes if live API data is consistently unavailable.
-    # To use this, you need to:
-    # 1. Manually download a historical data CSV for the ticker (e.g., from Yahoo Finance).
-    #    Make sure it has 'Date', 'Open', 'High', 'Low', 'Close', 'Volume' columns.
-    # 2. Place the CSV file in your project, e.g., in a 'data/' directory.
-    #    For 'RELIANCE.NS', you might save it as 'data/RELIANCE.NS.csv'.
-    # 3. Uncomment the lines below and ensure the path is correct.
-    #
-    # Example for RELIANCE.NS.csv:
-    # try:
-    #     csv_path = f"data/{ticker_symbol}.csv"
-    #     hist_df = pd.read_csv(csv_path)
-    #     hist_df['Date'] = pd.to_datetime(hist_df['Date']).dt.date
-    #     hist_df.sort_values(by='Date', ascending=True, inplace=True)
-    #     required_cols = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
-    #     hist_df = hist_df[required_cols].dropna().reset_index(drop=True)
-    #     if not hist_df.empty:
-    #         st.success(f"✅ Loaded historical data for {ticker_symbol} from local CSV (all APIs failed).")
-    #         print(f"DEBUG: Loaded from CSV for {ticker_symbol} with {len(hist_df)} rows.")
-    #         return hist_df
-    #     else:
-    #         st.warning(f"⚠️ Local CSV for {ticker_symbol} was empty or malformed.")
-    # except FileNotFoundError:
-    #     print(f"DEBUG: Local CSV file not found at {csv_path}")
-    # except Exception as e:
-    #     st.error(f"❌ Error loading local CSV for {ticker_symbol}: {e}")
-    #     print(f"DEBUG: Error loading CSV: {e}")
+    # This block is ENABLED as a failsafe for demonstration purposes.
+    # It ensures the app runs even if live API data is consistently unavailable.
+    # ACTION REQUIRED:
+    # 1. Create a folder named 'data' in your project's root directory.
+    # 2. Download historical data CSVs for the tickers you want to analyze (e.g., from Yahoo Finance).
+    #    Ensure the CSV has columns like 'Date', 'Open', 'High', 'Low', 'Close', 'Volume'.
+    # 3. Save the CSV file(s) in the 'data/' folder with the ticker symbol as the filename.
+    #    Example: For RELIANCE.NS, save it as 'data/RELIANCE.NS.csv'.
+    try:
+        csv_path = os.path.join("data", f"{ticker_symbol.upper()}.csv")
+        if os.path.exists(csv_path):
+            hist_df_csv = pd.read_csv(csv_path)
+            hist_df_csv['Date'] = pd.to_datetime(hist_df_csv['Date']).dt.date
+            hist_df_csv.sort_values(by='Date', ascending=True, inplace=True)
+            required_cols = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
+            # Ensure required columns exist, fill missing with NaN, then drop rows with NaNs in required_cols
+            for col in required_cols:
+                if col not in hist_df_csv.columns:
+                    hist_df_csv[col] = np.nan
+            hist_df = hist_df_csv[required_cols].dropna().reset_index(drop=True)
+
+            if not hist_df.empty:
+                st.success(f"✅ Successfully loaded historical data for {ticker_symbol} from local CSV (all APIs failed).")
+                st.warning(f"⚠️ Data for {ticker_symbol} is loaded from a local CSV. It may not be live or the most recent. Please ensure you have placed the CSV in the 'data/' folder correctly.")
+                print(f"DEBUG: Loaded from CSV for {ticker_symbol} with {len(hist_df)} rows.")
+                return hist_df
+            else:
+                st.warning(f"⚠️ Local CSV for {ticker_symbol} was empty or malformed after processing.")
+                print(f"DEBUG: Local CSV empty/malformed for {ticker_symbol}.")
+        else:
+            print(f"DEBUG: Local CSV file not found at {csv_path}")
+    except FileNotFoundError:
+        print(f"DEBUG: Local CSV file not found (handled by os.path.exists check).")
+    except Exception as e:
+        st.error(f"❌ Error loading local CSV for {ticker_symbol}: {e}. Please check the CSV file format and contents.")
+        print(f"DEBUG: Error loading CSV: {e}")
     # --- END LAST RESORT CSV BLOCK ---
 
 
-    # If all sources fail
-    st.error(f"❌ Historical data for {ticker_symbol} could not be retrieved from any source (yfinance, Alpha Vantage, or FMP). Please double-check the ticker symbol (e.g., AAPL for US, RELIANCE.NS for NSE, TCS.BO for BSE for Indian stocks) or try again later. Free data sources for this symbol may be temporarily unavailable or not supported, especially for extensive historical data on non-US exchanges.")
+    # If all sources (APIs and CSV) fail
+    st.error(f"❌ Historical data for {ticker_symbol} could not be retrieved from any live API or local CSV. Please double-check the ticker symbol, your API keys, and ensure any necessary CSV files are correctly placed in the 'data/' folder. Data for this symbol may be consistently unavailable from free sources.")
     return pd.DataFrame()
 
 
@@ -348,7 +355,8 @@ def main():
 
     suggestions = []
     if ticker_input:
-        if FMP_API_KEY == "YOUR_FMP_KEY": # This check remains, but FMP_API_KEY is now set above
+        # FMP_API_KEY is now correctly set in the global scope of this file
+        if FMP_API_KEY == "YOUR_FMP_KEY": # This check will still pass if the key is default
             st.warning("⚠️ FMP_API_KEY is not set. Autocomplete suggestions may be limited or unavailable. Please update `app.py`.")
         else:
             suggestions = fmp_autocomplete.fetch_fmp_suggestions(ticker_input, api_key=FMP_API_KEY)
@@ -384,7 +392,7 @@ def main():
                     unsafe_allow_html=True)
 
         # Load historical data first, as it's a prerequisite for multiple tabs
-        # This block now uses the enhanced load_historical_data with FMP historical-chart fallback
+        # This block now uses the enhanced load_historical_data with FMP historical-chart fallback AND CSV fallback
         if 'historical_data' not in st.session_state or st.session_state.historical_data is None or \
            st.session_state.historical_data.empty or \
            (hasattr(st.session_state.historical_data, 'name') and st.session_state.historical_data.name != ticker_to_analyze):
@@ -395,7 +403,7 @@ def main():
         hist_data_for_tabs = st.session_state.historical_data
 
         if hist_data_for_tabs.empty:
-            st.error(f"❌ Analysis cannot proceed for {ticker_to_analyze}: Historical data could not be retrieved from any source. Please verify the ticker or try again later.")
+            st.error(f"❌ Analysis cannot proceed for {ticker_to_analyze}: Historical data could not be retrieved. Please verify the ticker or try again later.")
             st.session_state.analyze_triggered = False # Reset trigger if data is missing
             return
 
