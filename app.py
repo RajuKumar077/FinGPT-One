@@ -44,6 +44,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# API Keys (IMPORTANT: REPLACE "YOUR_KEY_HERE" WITH YOUR ACTUAL KEYS)
 NEWS_API_KEY = "874ba654bdcd4aa7b68f7367a907cc2f" # Get your free key from newsapi.com
 FMP_API_KEY = "5C9DnMCAzYam2ZPjNpOxKLFxUiGhrJDD"     # Get your free key from financialmodelingprep.com
 GEMINI_API_KEY = "AIzaSyAK8BevJ1wIrwMoYDsnCLQXdZlFglF92WE" # IMPORTANT: Get your key from Google Cloud Console (enable Generative Language API)
@@ -93,7 +94,7 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key):
                     'Open': 'Open',
                     'High': 'High',
                     'Low': 'Low',
-                    'Close': 'Close',
+                    'Close': 'Close', # 'Close' will be adjusted due to auto_adjust=True
                     'Volume': 'Volume'
                 }, inplace=True)
                 hist_df_yf['Date'] = pd.to_datetime(hist_df_yf['Date']).dt.date
@@ -114,7 +115,7 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key):
             continue
         except Exception as e:
             print(f"DEBUG: Generic yfinance error for {ticker_symbol} ({period}): {e}")
-            st.warning(f"⚠️ YFinance data issue for {ticker_symbol} (period: {period}): {e}. Trying next yfinance period.")
+            st.warning(f"⚠️ YFinance data issue for {ticker_symbol} (period: {period}): {e}. This often indicates an issue with the data source's response, an invalid ticker, or temporary data unavailability. Trying next period.")
             time.sleep(1) # Small delay
             continue
 
@@ -150,21 +151,40 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key):
                 df_av.index = pd.to_datetime(df_av.index)
                 df_av.sort_index(inplace=True)
 
-                # Rename columns and convert to appropriate types
-                df_av.columns = [col.split(". ")[1].replace(" ", "_") for col in df_av.columns]
-                df_av = df_av.rename(columns={'adjusted_close': 'Close', 'volume': 'Volume'}) # Adjusted Close is 'Close'
-                df_av['Open'] = pd.to_numeric(df_av['open'], errors='coerce')
-                df_av['High'] = pd.to_numeric(df_av['high'], errors='coerce')
-                df_av['Low'] = pd.to_numeric(df_av['low'], errors='coerce')
-                df_av['Close'] = pd.to_numeric(df_av['Close'], errors='coerce')
-                df_av['Volume'] = pd.to_numeric(df_av['Volume'], errors='coerce')
+                # --- IMPROVED ALPHA VANTAGE COLUMN MAPPING ---
+                # Explicitly map Alpha Vantage column names to desired DataFrame column names
+                column_mapping = {
+                    '1. open': 'Open',
+                    '2. high': 'High',
+                    '3. low': 'Low',
+                    '4. close': 'Close_Unadjusted', # Keep original if needed, but we'll use adjusted
+                    '5. adjusted close': 'Close', # This is what we primarily need for 'Close'
+                    '6. volume': 'Volume'
+                    # '7. dividend amount': 'Dividend_Amount',
+                    # '8. split coefficient': 'Split_Coefficient'
+                }
+                
+                # Filter df_av to only include columns we need and rename them
+                df_av = df_av[[col for col in column_mapping.keys() if col in df_av.columns]]
+                df_av = df_av.rename(columns=column_mapping)
+                
+                # Convert relevant columns to numeric, coercing errors
+                for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
+                    if col in df_av.columns:
+                        df_av[col] = pd.to_numeric(df_av[col], errors='coerce')
                 
                 df_av.reset_index(inplace=True)
                 df_av.rename(columns={'index': 'Date'}, inplace=True)
                 df_av['Date'] = df_av['Date'].dt.date
 
                 required_cols = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
-                hist_df = df_av[required_cols].dropna().reset_index(drop=True) # Drop any NaNs introduced by conversion
+                # Ensure all required columns exist and then drop NaNs
+                # Fill missing required columns with NaN if they don't exist, then drop rows with any NaNs in required_cols
+                for col in required_cols:
+                    if col not in df_av.columns:
+                        df_av[col] = np.nan
+                
+                hist_df = df_av[required_cols].dropna().reset_index(drop=True)
 
                 if not hist_df.empty:
                     st.success(f"✅ Successfully loaded historical data for {ticker_symbol} using Alpha Vantage.")
@@ -175,7 +195,7 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key):
             elif "Error Message" in data_av:
                 st.error(f"❌ Alpha Vantage API Error for {ticker_symbol}: {data_av['Error Message']}. Please check your API key or usage limits.")
             else:
-                st.error(f"❌ Alpha Vantage returned unexpected data format for {ticker_symbol}.")
+                st.error(f"❌ Alpha Vantage returned unexpected data format for {ticker_symbol}. Raw response keys: {list(data_av.keys()) if isinstance(data_av, dict) else 'Not a dict'}")
 
     except requests.exceptions.HTTPError as http_err:
         if http_err.response.status_code == 429: # Alpha Vantage specific rate limit
@@ -189,7 +209,9 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key):
     except requests.exceptions.Timeout as timeout_err:
         st.error(f"❌ Alpha Vantage Request timed out. The server might be slow or unresponsive. Please try again.")
     except json.JSONDecodeError as json_err:
-        st.error(f"❌ Alpha Vantage: Received invalid data from API. Please try again later. Error: {json_err}")
+        st.error(f"❌ Alpha Vantage: Received invalid JSON data from API. Please try again later. Error: {json_err}")
+    except KeyError as ke: # Catch potential KeyError if expected columns are missing
+        st.error(f"❌ Alpha Vantage: Data parsing error - expected column not found. Error: {ke}. This may indicate a change in API response format.")
     except Exception as e:
         st.error(f"❌ An unexpected error occurred while fetching from Alpha Vantage: {e}")
 
