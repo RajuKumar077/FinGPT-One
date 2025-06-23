@@ -50,7 +50,6 @@ FMP_API_KEY = "5C9DnMCAzYam2ZPjNpOxKLFxUiGhrJDD"     # Your provided FMP key
 GEMINI_API_KEY = "AIzaSyAK8BevJ1wIrwMoYDsnCLQXdZlFglF92WE" # Your provided Gemini key
 ALPHA_VANTAGE_API_KEY = "WLVUE35CQ906QK3K" # IMPORTANT: Get your free key from www.alphavantage.co
 
-
 # --- Custom CSS and Font Loading ---
 def load_css(file_path):
     """Loads custom CSS from a file."""
@@ -66,11 +65,11 @@ st.markdown(
 load_css("assets/style.css")
 
 
-# --- Historical Data Loading (yfinance and Alpha Vantage Fallback) ---
+# --- Historical Data Loading (yfinance, Alpha Vantage, and FMP Fallback) ---
 @st.cache_data(ttl=3600, show_spinner=False)  # Cache historical data for 1 hour
-def load_historical_data(ticker_symbol, alpha_vantage_api_key):
+def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
     """
-    Loads historical stock data, first attempting yfinance, then falling back to Alpha Vantage.
+    Loads historical stock data, first attempting yfinance, then Alpha Vantage, then FMP.
     """
     if not ticker_symbol:
         return pd.DataFrame()
@@ -122,101 +121,153 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key):
     # --- Attempt 2: Fallback to Alpha Vantage if yfinance completely failed ---
     st.info(f"YFinance failed for {ticker_symbol}. Falling back to Alpha Vantage...")
     if not alpha_vantage_api_key or alpha_vantage_api_key == "YOUR_ALPHA_VANTAGE_API_KEY":
-        st.error("❌ Alpha Vantage API key is not set. Cannot use Alpha Vantage as a fallback. Please update `app.py`.")
-        return pd.DataFrame()
+        st.error("❌ Alpha Vantage API key is not set. Cannot use Alpha Vantage as a fallback.")
+    else:
+        alpha_vantage_url = "https://www.alphavantage.co/query"
+        params_av = {
+            "function": "TIME_SERIES_DAILY_ADJUSTED",
+            "symbol": ticker_symbol,
+            "outputsize": "full", # or "compact" for last 100 days
+            "apikey": alpha_vantage_api_key
+        }
 
-    alpha_vantage_url = "https://www.alphavantage.co/query"
-    params_av = {
-        "function": "TIME_SERIES_DAILY_ADJUSTED",
-        "symbol": ticker_symbol,
-        "outputsize": "full", # or "compact" for last 100 days
-        "apikey": alpha_vantage_api_key
-    }
+        try:
+            with st.spinner(f"Attempting to load historical data for {ticker_symbol} from Alpha Vantage... (This may take a moment due to API limits)"):
+                # Alpha Vantage free tier has a limit of 5 calls per minute.
+                # We add a sleep here before the call, assuming it's the only AV call in sequence,
+                # or it's the first call after a period of no AV calls.
+                time.sleep(15) # Wait 15 seconds to respect the rate limit (5 calls/min means 12s per call average)
 
-    try:
-        with st.spinner(f"Attempting to load historical data for {ticker_symbol} from Alpha Vantage... (This may take a moment due to API limits)"):
-            # Alpha Vantage free tier has a limit of 5 calls per minute.
-            # We add a sleep here before the call, assuming it's the only AV call in sequence,
-            # or it's the first call after a period of no AV calls.
-            # If multiple AV calls are made in quick succession, this might still hit limits.
-            time.sleep(15) # Wait 15 seconds to respect the rate limit (5 calls/min means 12s per call average)
+                response_av = requests.get(alpha_vantage_url, params=params_av, timeout=20)
+                response_av.raise_for_status()
+                data_av = response_av.json()
 
-            response_av = requests.get(alpha_vantage_url, params=params_av, timeout=20)
-            response_av.raise_for_status()
-            data_av = response_av.json()
+                if "Time Series (Daily)" in data_av:
+                    raw_data = data_av["Time Series (Daily)"]
+                    df_av = pd.DataFrame.from_dict(raw_data, orient="index")
+                    df_av.index = pd.to_datetime(df_av.index)
+                    df_av.sort_index(inplace=True)
 
-            if "Time Series (Daily)" in data_av:
-                raw_data = data_av["Time Series (Daily)"]
-                df_av = pd.DataFrame.from_dict(raw_data, orient="index")
-                df_av.index = pd.to_datetime(df_av.index)
-                df_av.sort_index(inplace=True)
+                    column_mapping_av = {
+                        '1. open': 'Open',
+                        '2. high': 'High',
+                        '3. low': 'Low',
+                        '5. adjusted close': 'Close', # This is what we primarily need for 'Close'
+                        '6. volume': 'Volume'
+                    }
+                    
+                    df_av = df_av[[col for col in column_mapping_av.keys() if col in df_av.columns]]
+                    df_av = df_av.rename(columns=column_mapping_av)
+                    
+                    for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
+                        if col in df_av.columns:
+                            df_av[col] = pd.to_numeric(df_av[col], errors='coerce')
+                    
+                    df_av.reset_index(inplace=True)
+                    df_av.rename(columns={'index': 'Date'}, inplace=True)
+                    df_av['Date'] = df_av['Date'].dt.date
 
-                # --- IMPROVED ALPHA VANTAGE COLUMN MAPPING ---
-                # Explicitly map Alpha Vantage column names to desired DataFrame column names
-                column_mapping = {
-                    '1. open': 'Open',
-                    '2. high': 'High',
-                    '3. low': 'Low',
-                    '4. close': 'Close_Unadjusted', # Keep original if needed, but we'll use adjusted
-                    '5. adjusted close': 'Close', # This is what we primarily need for 'Close'
-                    '6. volume': 'Volume'
-                    # '7. dividend amount': 'Dividend_Amount',
-                    # '8. split coefficient': 'Split_Coefficient'
-                }
-                
-                # Filter df_av to only include columns we need and rename them
-                df_av = df_av[[col for col in column_mapping.keys() if col in df_av.columns]]
-                df_av = df_av.rename(columns=column_mapping)
-                
-                # Convert relevant columns to numeric, coercing errors
-                for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
-                    if col in df_av.columns:
-                        df_av[col] = pd.to_numeric(df_av[col], errors='coerce')
-                
-                df_av.reset_index(inplace=True)
-                df_av.rename(columns={'index': 'Date'}, inplace=True)
-                df_av['Date'] = df_av['Date'].dt.date
+                    required_cols = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
+                    for col in required_cols:
+                        if col not in df_av.columns:
+                            df_av[col] = np.nan
+                    
+                    hist_df = df_av[required_cols].dropna().reset_index(drop=True)
 
-                required_cols = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
-                # Ensure all required columns exist and then drop NaNs
-                # Fill missing required columns with NaN if they don't exist, then drop rows with any NaNs in required_cols
-                for col in required_cols:
-                    if col not in df_av.columns:
-                        df_av[col] = np.nan
-                
-                hist_df = df_av[required_cols].dropna().reset_index(drop=True)
+                    if not hist_df.empty:
+                        st.success(f"✅ Successfully loaded historical data for {ticker_symbol} using Alpha Vantage.")
+                        return hist_df
+                    else:
+                        st.warning(f"⚠️ Alpha Vantage returned empty or malformed data for {ticker_symbol} after processing. No historical data available.")
 
-                if not hist_df.empty:
-                    st.success(f"✅ Successfully loaded historical data for {ticker_symbol} using Alpha Vantage.")
-                    return hist_df
+                elif "Error Message" in data_av:
+                    st.error(f"❌ Alpha Vantage API Error for {ticker_symbol}: {data_av['Error Message']}. Please check your API key or usage limits.")
                 else:
-                    st.warning(f"⚠️ Alpha Vantage returned empty or malformed data for {ticker_symbol} after processing. No historical data available.")
+                    st.error(f"❌ Alpha Vantage returned unexpected data format for {ticker_symbol}. Raw response keys: {list(data_av.keys()) if isinstance(data_av, dict) else 'Not a dict'}")
 
-            elif "Error Message" in data_av:
-                st.error(f"❌ Alpha Vantage API Error for {ticker_symbol}: {data_av['Error Message']}. Please check your API key or usage limits.")
+        except requests.exceptions.HTTPError as http_err:
+            if http_err.response.status_code == 429:
+                st.error(f"❌ Alpha Vantage API rate limit hit for {ticker_symbol}. Please wait at least 1 minute before trying another stock.")
+            elif http_err.response.status_code in [401, 403]:
+                st.error("❌ Alpha Vantage API key is invalid or unauthorized. Please check your ALPHA_VANTAGE_API_KEY in app.py.")
             else:
-                st.error(f"❌ Alpha Vantage returned unexpected data format for {ticker_symbol}. Raw response keys: {list(data_av.keys()) if isinstance(data_av, dict) else 'Not a dict'}")
+                st.error(f"❌ Alpha Vantage HTTP error occurred: {http_err}. Status: {http_err.response.status_code}")
+        except requests.exceptions.ConnectionError as conn_err:
+            st.error(f"❌ Alpha Vantage Connection error: {conn_err}. Please check your internet connection.")
+        except requests.exceptions.Timeout as timeout_err:
+            st.error(f"❌ Alpha Vantage Request timed out. The server might be slow or unresponsive. Please try again.")
+        except json.JSONDecodeError as json_err:
+            st.error(f"❌ Alpha Vantage: Received invalid JSON data from API. Please try again later. Error: {json_err}")
+        except KeyError as ke:
+            st.error(f"❌ Alpha Vantage: Data parsing error - expected column not found. Error: {ke}. This may indicate a change in API response format.")
+        except Exception as e:
+            st.error(f"❌ An unexpected error occurred while fetching from Alpha Vantage: {e}")
 
-    except requests.exceptions.HTTPError as http_err:
-        if http_err.response.status_code == 429: # Alpha Vantage specific rate limit
-            st.error(f"❌ Alpha Vantage API rate limit hit for {ticker_symbol}. Please wait at least 1 minute before trying another stock.")
-        elif http_err.response.status_code in [401, 403]:
-            st.error("❌ Alpha Vantage API key is invalid or unauthorized. Please check your ALPHA_VANTAGE_API_KEY in app.py.")
-        else:
-            st.error(f"❌ Alpha Vantage HTTP error occurred: {http_err}. Status: {http_err.response.status_code}")
-    except requests.exceptions.ConnectionError as conn_err:
-        st.error(f"❌ Alpha Vantage Connection error: {conn_err}. Please check your internet connection.")
-    except requests.exceptions.Timeout as timeout_err:
-        st.error(f"❌ Alpha Vantage Request timed out. The server might be slow or unresponsive. Please try again.")
-    except json.JSONDecodeError as json_err:
-        st.error(f"❌ Alpha Vantage: Received invalid JSON data from API. Please try again later. Error: {json_err}")
-    except KeyError as ke: # Catch potential KeyError if expected columns are missing
-        st.error(f"❌ Alpha Vantage: Data parsing error - expected column not found. Error: {ke}. This may indicate a change in API response format.")
-    except Exception as e:
-        st.error(f"❌ An unexpected error occurred while fetching from Alpha Vantage: {e}")
+    # --- Attempt 3: Fallback to Financial Modeling Prep (FMP) if others failed ---
+    st.info(f"YFinance and Alpha Vantage failed for {ticker_symbol}. Falling back to Financial Modeling Prep (FMP)...")
+    if not fmp_api_key or fmp_api_key == "YOUR_FMP_KEY":
+        st.error("❌ FMP API key is not set. Cannot use FMP as a fallback for historical data. Please update `app.py`.")
+    else:
+        fmp_historical_url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{ticker_symbol}"
+        params_fmp_hist = {"apikey": fmp_api_key}
+        
+        try:
+            with st.spinner(f"Attempting to load historical data for {ticker_symbol} from FMP..."):
+                # FMP free tier also has rate limits (250 requests/day for historical data)
+                # No specific sleep here as it might be first FMP call for historical data type
+                response_fmp_hist = requests.get(fmp_historical_url, params=params_fmp_hist, timeout=20)
+                response_fmp_hist.raise_for_status()
+                data_fmp_hist = response_fmp_hist.json()
 
-    # If both yfinance and Alpha Vantage fail
-    st.error(f"❌ Historical data for {ticker_symbol} could not be retrieved from any source. Please double-check the ticker symbol (e.g., AAPL for US, RELIANCE.NS for NSE, TCS.BO for BSE for Indian stocks) or try again later.")
+                if data_fmp_hist and "historical" in data_fmp_hist and data_fmp_hist["historical"]:
+                    df_fmp_hist = pd.DataFrame(data_fmp_hist["historical"])
+                    df_fmp_hist['date'] = pd.to_datetime(df_fmp_hist['date'])
+                    df_fmp_hist.sort_values('date', ascending=True, inplace=True)
+                    
+                    df_fmp_hist.rename(columns={
+                        'date': 'Date',
+                        'open': 'Open',
+                        'high': 'High',
+                        'low': 'Low',
+                        'close': 'Close',
+                        'volume': 'Volume'
+                    }, inplace=True)
+                    
+                    df_fmp_hist['Date'] = df_fmp_hist['Date'].dt.date
+                    required_cols = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
+                    hist_df = df_fmp_hist[required_cols].dropna().reset_index(drop=True)
+
+                    if not hist_df.empty:
+                        st.success(f"✅ Successfully loaded historical data for {ticker_symbol} using FMP.")
+                        return hist_df
+                    else:
+                        st.warning(f"⚠️ FMP returned empty or malformed historical data for {ticker_symbol}.")
+
+                elif "Error Message" in data_fmp_hist:
+                    st.error(f"❌ FMP API Error for {ticker_symbol} historical data: {data_fmp_hist['Error Message']}. Check your FMP API key or usage limits.")
+                else:
+                    st.error(f"❌ FMP returned unexpected data format for {ticker_symbol} historical data.")
+
+        except requests.exceptions.HTTPError as http_err:
+            if http_err.response.status_code == 429:
+                st.error(f"❌ FMP API rate limit hit for historical data for {ticker_symbol}. Please wait and try again.")
+            elif http_err.response.status_code in [401, 403]:
+                st.error("❌ FMP API key is invalid or unauthorized for historical data. Please check your FMP_API_KEY in app.py.")
+            else:
+                st.error(f"❌ FMP HTTP error occurred fetching historical data: {http_err}. Status: {http_err.response.status_code}")
+        except requests.exceptions.ConnectionError as conn_err:
+            st.error(f"❌ FMP Connection error fetching historical data: {conn_err}. Check your internet connection.")
+        except requests.exceptions.Timeout as timeout_err:
+            st.error(f"❌ FMP Request timed out fetching historical data. Server might be slow or unresponsive. Please try again.")
+        except json.JSONDecodeError as json_err:
+            st.error(f"❌ FMP: Received invalid JSON data for historical data. Error: {json_err}")
+        except KeyError as ke:
+            st.error(f"❌ FMP: Data parsing error - expected column not found for historical data. Error: {ke}. This may indicate a change in API response format.")
+        except Exception as e:
+            st.error(f"❌ An unexpected error occurred while fetching historical data from FMP: {e}")
+
+    # If all sources fail
+    st.error(f"❌ Historical data for {ticker_symbol} could not be retrieved from any source (yfinance, Alpha Vantage, or FMP). Please double-check the ticker symbol (e.g., AAPL for US, RELIANCE.NS for NSE, TCS.BO for BSE for Indian stocks) or try again later. Free data sources for this symbol may be temporarily unavailable or not supported.")
     return pd.DataFrame()
 
 
@@ -248,7 +299,9 @@ def main():
 
     suggestions = []
     if ticker_input:
-        if FMP_API_KEY == "YOUR_FMP_KEY": # This check remains, but FMP_API_KEY is now set above
+        # FMP_API_KEY is now correctly set in the global scope of this file
+        # The check below is for user awareness, but it should now pass if the key is valid.
+        if FMP_API_KEY == "YOUR_FMP_KEY": 
             st.warning("⚠️ FMP_API_KEY is not set. Autocomplete suggestions may be limited or unavailable. Please update `app.py`.")
         else:
             suggestions = fmp_autocomplete.fetch_fmp_suggestions(ticker_input, api_key=FMP_API_KEY)
@@ -284,11 +337,11 @@ def main():
                     unsafe_allow_html=True)
 
         # Load historical data first, as it's a prerequisite for multiple tabs
-        # This block now uses the enhanced load_historical_data with Alpha Vantage fallback
+        # This block now uses the enhanced load_historical_data with FMP fallback
         if 'historical_data' not in st.session_state or st.session_state.historical_data is None or \
            st.session_state.historical_data.empty or \
            (hasattr(st.session_state.historical_data, 'name') and st.session_state.historical_data.name != ticker_to_analyze):
-            st.session_state.historical_data = load_historical_data(ticker_to_analyze, ALPHA_VANTAGE_API_KEY)
+            st.session_state.historical_data = load_historical_data(ticker_to_analyze, ALPHA_VANTAGE_API_KEY, FMP_API_KEY) # Pass FMP key
             if not st.session_state.historical_data.empty:
                 st.session_state.historical_data.name = ticker_to_analyze # Store ticker with data
 
@@ -305,7 +358,7 @@ def main():
 
         # --- Pass relevant data and API keys to each module ---
         with tab_summary:
-            if FMP_API_KEY == "YOUR_FMP_KEY":
+            if FMP_API_KEY == "YOUR_FMP_KEY": # This will now be FALSE if user set the key
                 st.warning("⚠️ FMP_API_KEY is not set. Company overview might be incomplete (relying solely on yfinance) and financial data/news company name lookup will be unavailable.")
             if GEMINI_API_KEY == "YOUR_GEMINI_API_KEY":
                 st.warning("⚠️ GEMINI_API_KEY is not set. AI-powered company insights will be unavailable. Please update `app.py`.")
