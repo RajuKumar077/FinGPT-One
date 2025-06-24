@@ -1,69 +1,61 @@
 import requests
-import time
-import json
 import streamlit as st
 
-@st.cache_data(ttl=3600, show_spinner=False) # Cache suggestions for an hour
-def fetch_fmp_suggestions(query, api_key, retries=3, initial_delay=0.5):
+def fetch_fmp_suggestions(query, api_key):
     """
-    Fetch stock ticker suggestions using Financial Modeling Prep (FMP) Search Endpoint.
+    Fetches stock ticker suggestions from the Financial Modeling Prep (FMP) API.
+
+    Args:
+        query (str): The partial ticker symbol or company name to search for.
+        api_key (str): Your FMP API key.
+
+    Returns:
+        list: A list of formatted suggestions (e.g., "AAPL - Apple Inc."),
+              or an empty list if no suggestions are found or an error occurs.
     """
-    if not query:
+    if not query or not api_key or api_key == "YOUR_FMP_KEY":
+        print("DEBUG: FMP API key is not set or query is empty for autocomplete.")
         return []
-    if not api_key or api_key == "5C9DnMCAzYam2ZPjNpOxKLFxUiGhrJDD": # Check for unset key
-        return []
 
-    base_url = "https://financialmodelingprep.com/api/v3/search"
-    params = {
-        "query": query,
-        "limit": 10, # Limit to 10 suggestions for quick display
-        "exchange": "NASDAQ,NYSE,AMEX,TSX,LON,NSE,BSE", # Include major global exchanges and Indian ones
-        "apikey": api_key
-    }
+    # FMP has a search endpoint for symbols
+    url = f"https://financialmodelingprep.com/api/v3/search?query={query}&limit=10&exchange=NASDAQ,NYSE,AMEX,NSE,BSE&apikey={api_key}"
 
-    for attempt in range(retries + 1):
-        try:
-            if attempt > 0:
-                sleep_time = initial_delay * (2 ** (attempt - 1))
-                print(f"Retrying FMP symbol search (attempt {attempt}/{retries}). Waiting {sleep_time:.2f} seconds...")
-                time.sleep(sleep_time)
+    try:
+        response = requests.get(url, timeout=5)
+        response.raise_for_status() # Raise an HTTPError for bad responses (4xx or 5xx)
+        data = response.json()
 
-            response = requests.get(base_url, params=params, timeout=15) # Increased timeout
-            response.raise_for_status() # Raise an HTTPError for bad responses (4xx or 5xx)
-            data = response.json()
-
-            if not data: # Empty list usually means no matches
-                print(f"No FMP symbol search results found for '{query}'.")
-                return []
-            
-            suggestions = []
+        suggestions = []
+        if data:
             for item in data:
-                symbol = item.get("symbol")
-                name = item.get("name", "")
-                exchange = item.get("exchange", "")
+                symbol = item.get('symbol')
+                name = item.get('name')
+                exchange = item.get('exchangeShortName') # Get short exchange name
+
                 if symbol and name:
-                    suggestions.append(f"{symbol} - {name} ({exchange})")
-            return suggestions
-
-        except requests.exceptions.HTTPError as http_err:
-            if http_err.response.status_code == 429: # Rate limit
-                st.warning(f"⚠️ FMP API rate limit hit for symbol search. Please wait a moment and try again.")
-            elif http_err.response.status_code in [401, 403]: # Unauthorized/Forbidden
-                 st.error("❌ FMP API key is invalid or unauthorized for symbol search. Please check your FMP_API_KEY in app.py.")
-            else:
-                st.error(f"❌ FMP Symbol Search: HTTP error occurred: {http_err}. Status: {http_err.response.status_code}")
-            if attempt == retries: return []
-
-        except requests.exceptions.ConnectionError as conn_err:
-            st.error(f"❌ FMP Symbol Search: Connection error occurred: {conn_err}. Please check your internet connection.")
-            if attempt == retries: return []
-        except requests.exceptions.Timeout as timeout_err:
-            st.error(f"❌ FMP Symbol Search: Request timed out. The server might be slow or unresponsive. Please try again.")
-            if attempt == retries: return []
-        except json.JSONDecodeError as json_err:
-            st.error(f"❌ FMP Symbol Search: Received invalid data from API. Please try again later. Error: {json_err}")
-            if attempt == retries: return []
-        except Exception as e:
-            st.error(f"❌ FMP Symbol Search: An unexpected error occurred: {e}")
-            if attempt == retries: return []
-    return [] # Fallback if all retries fail
+                    # Filter out non-stock types or unwanted exchanges if necessary
+                    # For example, filter out crypto or non-equity types
+                    # if item.get('type') == 'stock':
+                    
+                    # Prioritize relevant exchanges or provide full detail
+                    display_name = f"{symbol} - {name}"
+                    if exchange:
+                        display_name += f" ({exchange})"
+                    suggestions.append(display_name)
+        return suggestions
+    except requests.exceptions.HTTPError as http_err:
+        print(f"DEBUG: FMP Autocomplete HTTP error: {http_err} for query '{query}'. Status: {http_err.response.status_code}. Response: {http_err.response.text}")
+        st.error(f"❌ FMP Autocomplete Error: {http_err.response.status_code}. Please check your FMP API key and usage limits.")
+    except requests.exceptions.ConnectionError as conn_err:
+        print(f"DEBUG: FMP Autocomplete Connection error for query '{query}': {conn_err}")
+        st.error(f"❌ FMP Autocomplete Connection Error: Please check your internet connection.")
+    except requests.exceptions.Timeout as timeout_err:
+        print(f"DEBUG: FMP Autocomplete Timeout for query '{query}': {timeout_err}")
+        st.error(f"❌ FMP Autocomplete Timeout: The request took too long. Please try again.")
+    except json.JSONDecodeError as json_err:
+        print(f"DEBUG: FMP Autocomplete JSON decode error for query '{query}': {json_err}. Raw response: {response.text}")
+        st.error(f"❌ FMP Autocomplete: Received invalid data from API. Please try again later.")
+    except Exception as e:
+        print(f"DEBUG: Unexpected error in FMP Autocomplete for query '{query}': {e}")
+        st.error(f"❌ An unexpected error occurred during autocomplete: {e}")
+    return []
