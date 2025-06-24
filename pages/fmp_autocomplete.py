@@ -20,7 +20,8 @@ def fetch_fmp_suggestions(query, api_key):
 
     # FMP has a search endpoint for symbols
     # Increased limit to 20 for more suggestions
-    url = f"[https://financialmodelingprep.com/api/v3/search?query=](https://financialmodelingprep.com/api/v3/search?query=){query}&limit=20&exchange=NASDAQ,NYSE,AMEX,NSE,BSE&apikey={api_key}"
+    # CORRECTED URL SYNTAX: Removed markdown link formatting
+    url = f"https://financialmodelingprep.com/api/v3/search?query={query}&limit=20&exchange=NASDAQ,NYSE,AMEX,NSE,BSE&apikey={api_key}"
 
     try:
         response = requests.get(url, timeout=5)
