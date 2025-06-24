@@ -63,7 +63,7 @@ def load_css(file_path):
         st.error(f"Error: CSS file not found at {file_path}. Please ensure 'assets/style.css' exists.")
 
 st.markdown(
-    "<link href='[https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap](https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap)' rel='stylesheet'>",
+    "<link href='https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap' rel='stylesheet'>",
     unsafe_allow_html=True)
 load_css("assets/style.css")
 
@@ -163,7 +163,7 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
     if not alpha_vantage_api_key or alpha_vantage_api_key == "YOUR_ALPHA_VANTAGE_API_KEY":
         st.error("❌ Alpha Vantage API key is not set or is the default placeholder. Cannot use Alpha Vantage as a fallback. Please ensure 'ALPHA_VANTAGE_API_KEY' in `app.py` is correctly set.")
     else:
-        alpha_vantage_url = "[https://www.alphavantage.co/query](https://www.alphavantage.co/query)"
+        alpha_vantage_url = "https://www.alphavantage.co/query"
         params_av = {
             "function": "TIME_SERIES_DAILY_ADJUSTED",
             "symbol": ticker_symbol,
@@ -242,7 +242,7 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
     if not fmp_api_key or fmp_api_key == "YOUR_FMP_KEY":
         st.error("❌ FMP API key is not set. Cannot use FMP as a fallback for historical chart data.")
     else:
-        fmp_historical_chart_url = f"[https://financialmodelingprep.com/api/v3/historical-chart/daily/](https://financialmodelingprep.com/api/v3/historical-chart/daily/){ticker_symbol}"
+        fmp_historical_chart_url = f"https://financialmodelingprep.com/api/v3/historical-chart/daily/{ticker_symbol}"
         params_fmp_chart = {"apikey": fmp_api_key}
         
         try:
@@ -298,7 +298,7 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
     if not fmp_api_key or fmp_api_key == "YOUR_FMP_KEY":
         st.error("❌ FMP API key is not set. Cannot use FMP historical price endpoint as a fallback.")
     else:
-        fmp_simple_historical_url = f"[https://financialmodelingprep.com/api/v3/historical-price/](https://financialmodelingprep.com/api/v3/historical-price/){ticker_symbol}"
+        fmp_simple_historical_url = f"https://financialmodelingprep.com/api/v3/historical-price/{ticker_symbol}"
         params_fmp_simple = {"apikey": fmp_api_key}
 
         try:
