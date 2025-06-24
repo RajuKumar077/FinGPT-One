@@ -1,5 +1,6 @@
 import requests
 import streamlit as st
+import time # Ensure time is imported for delays if needed
 
 def fetch_fmp_suggestions(query, api_key):
     """
@@ -19,7 +20,7 @@ def fetch_fmp_suggestions(query, api_key):
 
     # FMP has a search endpoint for symbols
     # Increased limit to 20 for more suggestions
-    url = f"https://financialmodelingprep.com/api/v3/search?query={query}&limit=20&exchange=NASDAQ,NYSE,AMEX,NSE,BSE&apikey={api_key}"
+    url = f"[https://financialmodelingprep.com/api/v3/search?query=](https://financialmodelingprep.com/api/v3/search?query=){query}&limit=20&exchange=NASDAQ,NYSE,AMEX,NSE,BSE&apikey={api_key}"
 
     try:
         response = requests.get(url, timeout=5)
@@ -56,4 +57,3 @@ def fetch_fmp_suggestions(query, api_key):
         print(f"DEBUG: Unexpected error in FMP Autocomplete for query '{query}': {e}")
         st.error(f"❌ An unexpected error occurred during autocomplete: {e}")
     return []
-
