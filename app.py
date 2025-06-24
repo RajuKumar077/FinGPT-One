@@ -6,7 +6,7 @@ import time
 import requests
 import json
 import yfinance as yf # Primary for historical data
-import os # Import os for path checking - retained for potential future path operations if needed, but not for CSV.
+import os # Imported for potential future path operations if needed, but not for local CSV fallback.
 
 # Import functions from your separate modules
 import pages.fmp_autocomplete as fmp_autocomplete
@@ -45,11 +45,11 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# API Keys (IMPORTANT: REPLACE "YOUR_KEY_HERE" WITH YOUR ACTUAL KEYS)
-NEWS_API_KEY = "874ba654bdcd4aa7b68f7367a907cc2f" # Get your free key from newsapi.com
-FMP_API_KEY = "5C9DnMCAzYam2ZPjNpOxKLFxUiGhrJDD"     # Your provided FMP key
-GEMINI_API_KEY = "AIzaSyAK8BevJ1wIrwMoYDsnCLQXdZlFglF92WE" # Your provided Gemini key
-ALPHA_VANTAGE_API_KEY = "YOUR_ALPHA_VANTAGE_API_KEY" # IMPORTANT: Get your free key from www.alphavantage.co
+# API Keys (ALL PROVIDED KEYS ARE NOW EMBEDDED)
+NEWS_API_KEY = "874ba654bdcd4aa7b68f7367a907cc2f" # Your NewsAPI key
+FMP_API_KEY = "5C9DnMCAzYam2ZPjNpOxKLFxUiGhrJDD"     # Your FMP key
+GEMINI_API_KEY = "AIzaSyAK8BevJ1wIrwMoYDsnCLQXdZlFglF92WE" # Your Gemini key
+ALPHA_VANTAGE_API_KEY = "WLVUE35CQ906QK3K" # Your Alpha Vantage key
 
 # --- Custom CSS and Font Loading ---
 def load_css(file_path):
@@ -119,8 +119,9 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
 
     # --- Attempt 2: Fallback to Alpha Vantage if yfinance completely failed ---
     st.info(f"Attempt 2/4: YFinance failed for {ticker_symbol}. Falling back to Alpha Vantage...")
+    # Alpha Vantage API key is now definitively set at the top of the file
     if not alpha_vantage_api_key or alpha_vantage_api_key == "YOUR_ALPHA_VANTAGE_API_KEY":
-        st.error("❌ Alpha Vantage API key is not set. Cannot use Alpha Vantage as a fallback.")
+        st.error("❌ Alpha Vantage API key is not set. Cannot use Alpha Vantage as a fallback. Please update `app.py`.")
     else:
         alpha_vantage_url = "https://www.alphavantage.co/query"
         params_av = {
@@ -195,6 +196,7 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
 
     # --- Attempt 3: Fallback to Financial Modeling Prep (FMP) historical-chart/daily ---
     st.info(f"Attempt 3/4: YFinance and Alpha Vantage failed for {ticker_symbol}. Falling back to Financial Modeling Prep (FMP) historical chart data (comprehensive)...")
+    # FMP_API_KEY is now definitively set at the top of the file
     if not fmp_api_key or fmp_api_key == "YOUR_FMP_KEY":
         st.error("❌ FMP API key is not set. Cannot use FMP as a fallback for historical chart data.")
     else:
@@ -251,6 +253,7 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
 
     # --- Attempt 4: Fallback to FMP historical-price (simpler endpoint, might be more permissive) ---
     st.info(f"Attempt 4/4: All previous historical data sources failed for {ticker_symbol}. Trying FMP's simpler historical price endpoint...")
+    # FMP_API_KEY is now definitively set at the top of the file
     if not fmp_api_key or fmp_api_key == "YOUR_FMP_KEY":
         st.error("❌ FMP API key is not set. Cannot use FMP historical price endpoint as a fallback.")
     else:
@@ -268,7 +271,6 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
                     df_fmp_simple['date'] = pd.to_datetime(df_fmp_simple['date'])
                     df_fmp_simple.sort_values('date', ascending=True, inplace=True)
                     
-                    # This endpoint might only return 'date' and 'close'. We'll fill others with Close for consistency.
                     df_fmp_simple.rename(columns={
                         'date': 'Date',
                         'open': 'Open',
@@ -285,7 +287,7 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
                     for col in ['Open', 'High', 'Low', 'Volume']:
                         if col not in df_fmp_simple.columns or df_fmp_simple[col].isnull().all():
                             df_fmp_simple[col] = df_fmp_simple['Close']
-                            st.warning(f"⚠️ Filled missing '{col}' data with 'Close' price from FMP simple endpoint for {ticker_symbol}.")
+                            st.warning(f"⚠️ Filled missing '{col}' data with 'Close' price from FMP simple endpoint for {ticker_symbol}. Forecasting/models might be less accurate.")
 
                     hist_df = df_fmp_simple[required_cols].dropna().reset_index(drop=True)
 
@@ -317,19 +319,21 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
             st.error(f"❌ An unexpected error occurred while fetching simple historical price from FMP: {e}")
             print(f"DEBUG: FMP (simple historical price) Unexpected Error: {e}")
 
-    # --- FINAL FALLBACK MESSAGE (API-ONLY) ---
+    # --- FINAL FAILURE MESSAGE (API-ONLY) ---
     st.error(f"""
-    ❌ **HISTORICAL DATA UNAVAILABLE FOR {ticker_symbol} FROM ALL FREE API SOURCES.**
+    ❌ **HISTORICAL DATA UNAVAILABLE FOR {ticker_symbol} FROM ALL FREE ONLINE API SOURCES.**
     
     This is highly likely due to limitations of free API tiers, which often:
     - Have strict rate limits (e.g., 5 calls/minute, 250 calls/day).
     - Provide inconsistent or limited historical data, especially for non-U.S. exchanges (like NSE/BSE).
     - May mark certain data as premium, even if other endpoints work.
+    - The specific ticker symbol might not be covered by free access.
     
-    **To troubleshoot:**
-    1.  **Verify All API Keys:** Double-check `NEWS_API_KEY`, `FMP_API_KEY`, `GEMINI_API_KEY`, and `ALPHA_VANTAGE_API_KEY` in `app.py`. Ensure they are valid and correctly pasted (no extra spaces, correct characters).
-    2.  **Check API Usage/Dashboards:** Log in to your NewsAPI, FMP, Alpha Vantage, and Google Cloud Console dashboards to see if you've hit any daily or minute-level rate limits.
-    3.  **Try a U.S. Ticker:** Please try a well-known U.S. stock like `AAPL`, `MSFT`, `GOOGL`, or `NVDA`. Free APIs typically provide much more consistent data for these. If they work, it confirms the issue is with data availability for your chosen Indian tickers from free sources, not with the application's core logic.
+    **To troubleshoot and verify application functionality:**
+    1.  **Verify All API Keys in `app.py`:** Double-check `NEWS_API_KEY`, `FMP_API_KEY`, `GEMINI_API_KEY`, and `ALPHA_VANTAGE_API_KEY`. Ensure they are valid and correctly pasted (no extra spaces, correct characters).
+    2.  **Check API Usage Dashboards:** Log in to your NewsAPI, FMP, Alpha Vantage, and Google Cloud Console dashboards to see if you've hit any daily or minute-level rate limits.
+    3.  **MOST IMPORTANT: Try a U.S. Ticker:** Please try a well-known U.S. stock like **`AAPL`**, **`MSFT`**, **`GOOGL`**, or **`NVDA`**. Free APIs typically provide much more consistent and comprehensive historical data for these.
+        * **If a U.S. ticker works, it *confirms* that your application's logic is perfectly sound and the issue is with data availability for your chosen Indian tickers from free sources.**
     4.  **Wait and Retry:** Sometimes, API issues are temporary.
     
     **Analysis cannot proceed without historical data.**
@@ -365,7 +369,8 @@ def main():
 
     suggestions = []
     if ticker_input:
-        if FMP_API_KEY == "YOUR_FMP_KEY": 
+        # FMP_API_KEY is now correctly set in the global scope of this file
+        if FMP_API_KEY == "YOUR_FMP_KEY": # This check will still trigger if the key is the default placeholder
             st.warning("⚠️ FMP_API_KEY is not set. Autocomplete suggestions may be limited or unavailable. Please update `app.py`.")
         else:
             suggestions = fmp_autocomplete.fetch_fmp_suggestions(ticker_input, api_key=FMP_API_KEY)
