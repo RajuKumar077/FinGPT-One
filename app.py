@@ -6,7 +6,10 @@ import time
 import requests
 import json
 import os # Imported for potential future path operations if needed, but not for local CSV fallback.
-import yfinance as yf # Primary for historical data
+import yfinance as yf # Retained as a fallback after pandas_datareader
+import pandas_datareader.data as web # NEW: For historical data via pandas_datareader
+
+warnings.filterwarnings('ignore')  # Suppress warnings for cleaner output
 
 # Import functions from your separate modules
 import pages.fmp_autocomplete as fmp_autocomplete
@@ -15,8 +18,6 @@ import pages.financials as financials
 import pages.probabilistic_stock_model as probabilistic_stock_model
 import pages.forecast_module as forecast_module
 import pages.news_sentiment as news_sentiment
-
-warnings.filterwarnings('ignore')  # Suppress warnings for cleaner output
 
 # --- GLOBAL CONFIGURATIONS AND INITIAL STREAMLIT SETUP ---
 st.set_page_config(
@@ -49,7 +50,7 @@ st.markdown("""
 NEWS_API_KEY = "874ba654bdcd4aa7b68f7367a907cc2f" # Your NewsAPI key
 FMP_API_KEY = "5C9DnMCAzYam2ZPjNpOxKLFxUiGhrJDD"     # Your FMP key
 GEMINI_API_KEY = "AIzaSyAK8BevJ1wIrwMoYDsnCLQXdZlFglF92WE" # Your Gemini key
-ALPHA_VANTAGE_API_KEY = "WLVUE35CQ906QK3K" # Your Alpha Vantage key - NOW EMBEDDED!
+ALPHA_VANTAGE_API_KEY = "WLVUE35CQ906QK3K" # Your Alpha Vantage key
 
 # --- Custom CSS and Font Loading ---
 def load_css(file_path):
@@ -66,11 +67,15 @@ st.markdown(
 load_css("assets/style.css")
 
 
-# --- Historical Data Loading (yfinance, Alpha Vantage, and FMP Fallback - API ONLY) ---
+# --- Historical Data Loading (pandas_datareader, yfinance, Alpha Vantage, and FMP Fallback - API ONLY) ---
 @st.cache_data(ttl=3600, show_spinner=False)  # Cache historical data for 1 hour
 def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
     """
-    Loads historical stock data, first attempting yfinance, then Alpha Vantage, then FMP (various endpoints).
+    Loads historical stock data, attempting:
+    1. pandas_datareader (Yahoo)
+    2. yfinance (Yahoo)
+    3. Alpha Vantage
+    4. FMP (various endpoints)
     This function relies purely on online APIs as per user's request.
     """
     if not ticker_symbol:
@@ -78,8 +83,42 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
 
     hist_df = pd.DataFrame()
 
-    # --- Attempt 1: Try yfinance with multiple periods ---
-    st.info(f"Attempt 1/4: Trying to load historical data for {ticker_symbol} using yfinance (primary source)...")
+    # --- Attempt 1: Try pandas_datareader with Yahoo ---
+    st.info(f"Attempt 1/5: Trying to load historical data for {ticker_symbol} using pandas_datareader (Yahoo source)...")
+    try:
+        with st.spinner(f"pandas_datareader for {ticker_symbol}..."):
+            # Fetch data from Yahoo using pandas_datareader
+            # Default behavior is to get maximum available data
+            hist_df_pd = web.DataReader(ticker_symbol, data_source='yahoo', start='2000-01-01', timeout=15)
+
+        if not hist_df_pd.empty:
+            hist_df_pd.reset_index(inplace=True)
+            hist_df_pd.rename(columns={
+                'Date': 'Date', 'Open': 'Open', 'High': 'High', 'Low': 'Low',
+                'Close': 'Close', 'Volume': 'Volume', 'Adj Close': 'Close' # 'Adj Close' is usually the adjusted one
+            }, inplace=True)
+            # Ensure Date column is in correct format
+            hist_df_pd['Date'] = pd.to_datetime(hist_df_pd['Date']).dt.date
+            required_cols = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
+            hist_df = hist_df_pd[required_cols]
+            hist_df.sort_values(by='Date', ascending=True, inplace=True)
+            hist_df.reset_index(drop=True, inplace=True)
+            st.success(f"✅ Successfully loaded historical data for {ticker_symbol} using pandas_datareader (Yahoo).")
+            print(f"DEBUG: pandas_datareader data loaded for {ticker_symbol} with {len(hist_df)} rows.")
+            return hist_df
+        else:
+            print(f"DEBUG: pandas_datareader returned empty data for {ticker_symbol}. Trying next source.")
+
+    except requests.exceptions.RequestException as req_err:
+        print(f"DEBUG: pandas_datareader network error for {ticker_symbol}: {req_err}")
+        st.warning(f"⚠️ pandas_datareader network error for {ticker_symbol}. Trying next source.")
+    except Exception as e:
+        print(f"DEBUG: Generic pandas_datareader error for {ticker_symbol}: {e}")
+        st.warning(f"⚠️ pandas_datareader data issue for {ticker_symbol}: {e}. Trying next source.")
+
+
+    # --- Attempt 2: Try yfinance with multiple periods (Fallback if pandas_datareader failed) ---
+    st.info(f"Attempt 2/5: pandas_datareader failed for {ticker_symbol}. Trying yfinance...")
     periods_to_try_yf = ["max", "5y", "2y", "1y", "6mo", "3mo", "1mo"] # Ordered from longest to shortest
 
     for period in periods_to_try_yf:
@@ -117,10 +156,9 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
             time.sleep(1)
             continue
 
-    # --- Attempt 2: Fallback to Alpha Vantage if yfinance completely failed ---
-    st.info(f"Attempt 2/4: YFinance failed for {ticker_symbol}. Falling back to Alpha Vantage...")
+    # --- Attempt 3: Fallback to Alpha Vantage if previous attempts failed ---
+    st.info(f"Attempt 3/5: Yahoo sources failed for {ticker_symbol}. Falling back to Alpha Vantage...")
     
-    # Check if Alpha Vantage API key is correctly set (should be from embedded key now)
     if not alpha_vantage_api_key or alpha_vantage_api_key == "YOUR_ALPHA_VANTAGE_API_KEY":
         st.error("❌ Alpha Vantage API key is not set or is the default placeholder. Cannot use Alpha Vantage as a fallback. Please ensure 'ALPHA_VANTAGE_API_KEY' in `app.py` is correctly set.")
     else:
@@ -175,13 +213,13 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
                         st.warning(f"⚠️ Alpha Vantage returned empty or malformed data for {ticker_symbol} after processing. No historical data available.")
                         print(f"DEBUG: Alpha Vantage empty/malformed data for {ticker_symbol} after processing.")
 
-                elif "Error Message" in data_av: # Explicit error message from AV API
+                elif "Error Message" in data_av:
                     st.error(f"❌ Alpha Vantage API Error for {ticker_symbol}: {data_av['Error Message']}. Please check your API key or usage limits.")
                     print(f"DEBUG: Alpha Vantage API Error: {data_av['Error Message']}")
-                elif "Information" in data_av: # Common message for rate limits or invalid calls
-                    st.error(f"❌ Alpha Vantage Information Message for {ticker_symbol}: {data_av['Information']}. This often indicates a rate limit, invalid ticker, or API key issue.")
+                elif "Information" in data_av: # Adjusted to catch explicit premium messages
+                    st.error(f"❌ Alpha Vantage Information Message for {ticker_symbol}: {data_av['Information']}. This often indicates a rate limit, invalid ticker, or API key issue (e.g., premium endpoint).")
                     print(f"DEBUG: Alpha Vantage Information Message: {data_av['Information']}")
-                else: # Generic unexpected format
+                else:
                     st.error(f"❌ Alpha Vantage returned unexpected data format for {ticker_symbol}. Raw response keys: {list(data_av.keys()) if isinstance(data_av, dict) else 'Not a dict'}")
                     print(f"DEBUG: Alpha Vantage unexpected data format: {data_av}")
 
@@ -198,9 +236,8 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
             st.error(f"❌ An unexpected error occurred while fetching from Alpha Vantage: {e}")
             print(f"DEBUG: Alpha Vantage Unexpected Error: {e}")
 
-    # --- Attempt 3: Fallback to Financial Modeling Prep (FMP) historical-chart/daily ---
-    st.info(f"Attempt 3/4: YFinance and Alpha Vantage failed for {ticker_symbol}. Falling back to Financial Modeling Prep (FMP) historical chart data (comprehensive)...")
-    # FMP_API_KEY is now definitively set at the top of the file
+    # --- Attempt 4: Fallback to Financial Modeling Prep (FMP) historical-chart/daily ---
+    st.info(f"Attempt 4/5: Alpha Vantage failed for {ticker_symbol}. Falling back to Financial Modeling Prep (FMP) historical chart data (comprehensive)...")
     if not fmp_api_key or fmp_api_key == "YOUR_FMP_KEY":
         st.error("❌ FMP API key is not set. Cannot use FMP as a fallback for historical chart data.")
     else:
@@ -255,9 +292,8 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
             st.error(f"❌ An unexpected error occurred while fetching historical chart data from FMP: {e}")
             print(f"DEBUG: FMP (historical chart) Unexpected Error: {e}")
 
-    # --- Attempt 4: Fallback to FMP historical-price (simpler endpoint, might be more permissive) ---
-    st.info(f"Attempt 4/4: All previous historical data sources failed for {ticker_symbol}. Trying FMP's simpler historical price endpoint...")
-    # FMP_API_KEY is now definitively set at the top of the file
+    # --- Attempt 5: Fallback to FMP historical-price (simpler endpoint, might be more permissive) ---
+    st.info(f"Attempt 5/5: All previous historical data sources failed for {ticker_symbol}. Trying FMP's simpler historical price endpoint...")
     if not fmp_api_key or fmp_api_key == "YOUR_FMP_KEY":
         st.error("❌ FMP API key is not set. Cannot use FMP historical price endpoint as a fallback.")
     else:
@@ -287,7 +323,6 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
                     df_fmp_simple['Date'] = df_fmp_simple['Date'].dt.date
                     required_cols = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
                     
-                    # Fill missing OHLCV columns with Close price to ensure data structure for models
                     for col in ['Open', 'High', 'Low', 'Volume']:
                         if col not in df_fmp_simple.columns or df_fmp_simple[col].isnull().all():
                             df_fmp_simple[col] = df_fmp_simple['Close']
@@ -336,7 +371,7 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
     **To troubleshoot and verify application functionality:**
     1.  **Verify All API Keys in `app.py`:** Double-check `NEWS_API_KEY`, `FMP_API_KEY`, `GEMINI_API_KEY`, and `ALPHA_VANTAGE_API_KEY`. Ensure they are valid and correctly pasted (no extra spaces, correct characters).
     2.  **Check API Usage Dashboards:** Log in to your NewsAPI, FMP, Alpha Vantage, and Google Cloud Console dashboards to see if you've hit any daily or minute-level rate limits.
-    3.  **MOST IMPORTANT: Try a U.S. Ticker:** Please try a well-known U.S. stock like **`AAPL`**, **`MSFT`**, **`GOOGL`**, or **`NVDA`**. Free APIs typically provide much more consistent and comprehensive historical data for these.
+    3.  **MOST IMPORTANT: Try a U.S. Ticker (e.g., AAPL, MSFT):** Free APIs generally provide much more consistent and comprehensive historical data for these.
         * **If a U.S. ticker works, it *confirms* that your application's logic is perfectly sound and the issue is with data availability for your chosen Indian tickers from free sources.**
     4.  **Wait and Retry:** Sometimes, API issues are temporary.
     
