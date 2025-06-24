@@ -5,8 +5,8 @@ import warnings
 import time
 import requests
 import json
-import yfinance as yf # Primary for historical data
 import os # Imported for potential future path operations if needed, but not for local CSV fallback.
+import yfinance as yf # Primary for historical data
 
 # Import functions from your separate modules
 import pages.fmp_autocomplete as fmp_autocomplete
@@ -49,7 +49,7 @@ st.markdown("""
 NEWS_API_KEY = "874ba654bdcd4aa7b68f7367a907cc2f" # Your NewsAPI key
 FMP_API_KEY = "5C9DnMCAzYam2ZPjNpOxKLFxUiGhrJDD"     # Your FMP key
 GEMINI_API_KEY = "AIzaSyAK8BevJ1wIrwMoYDsnCLQXdZlFglF92WE" # Your Gemini key
-ALPHA_VANTAGE_API_KEY = "WLVUE35CQ906QK3K" # Your Alpha Vantage key
+ALPHA_VANTAGE_API_KEY = "WLVUE35CQ906QK3K" # Your Alpha Vantage key - NOW EMBEDDED!
 
 # --- Custom CSS and Font Loading ---
 def load_css(file_path):
@@ -119,9 +119,10 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
 
     # --- Attempt 2: Fallback to Alpha Vantage if yfinance completely failed ---
     st.info(f"Attempt 2/4: YFinance failed for {ticker_symbol}. Falling back to Alpha Vantage...")
-    # Alpha Vantage API key is now definitively set at the top of the file
+    
+    # Check if Alpha Vantage API key is correctly set (should be from embedded key now)
     if not alpha_vantage_api_key or alpha_vantage_api_key == "YOUR_ALPHA_VANTAGE_API_KEY":
-        st.error("❌ Alpha Vantage API key is not set. Cannot use Alpha Vantage as a fallback. Please update `app.py`.")
+        st.error("❌ Alpha Vantage API key is not set or is the default placeholder. Cannot use Alpha Vantage as a fallback. Please ensure 'ALPHA_VANTAGE_API_KEY' in `app.py` is correctly set.")
     else:
         alpha_vantage_url = "https://www.alphavantage.co/query"
         params_av = {
@@ -174,10 +175,13 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
                         st.warning(f"⚠️ Alpha Vantage returned empty or malformed data for {ticker_symbol} after processing. No historical data available.")
                         print(f"DEBUG: Alpha Vantage empty/malformed data for {ticker_symbol} after processing.")
 
-                elif "Error Message" in data_av:
+                elif "Error Message" in data_av: # Explicit error message from AV API
                     st.error(f"❌ Alpha Vantage API Error for {ticker_symbol}: {data_av['Error Message']}. Please check your API key or usage limits.")
                     print(f"DEBUG: Alpha Vantage API Error: {data_av['Error Message']}")
-                else:
+                elif "Information" in data_av: # Common message for rate limits or invalid calls
+                    st.error(f"❌ Alpha Vantage Information Message for {ticker_symbol}: {data_av['Information']}. This often indicates a rate limit, invalid ticker, or API key issue.")
+                    print(f"DEBUG: Alpha Vantage Information Message: {data_av['Information']}")
+                else: # Generic unexpected format
                     st.error(f"❌ Alpha Vantage returned unexpected data format for {ticker_symbol}. Raw response keys: {list(data_av.keys()) if isinstance(data_av, dict) else 'Not a dict'}")
                     print(f"DEBUG: Alpha Vantage unexpected data format: {data_av}")
 
@@ -369,8 +373,7 @@ def main():
 
     suggestions = []
     if ticker_input:
-        # FMP_API_KEY is now correctly set in the global scope of this file
-        if FMP_API_KEY == "YOUR_FMP_KEY": # This check will still trigger if the key is the default placeholder
+        if FMP_API_KEY == "YOUR_FMP_KEY": 
             st.warning("⚠️ FMP_API_KEY is not set. Autocomplete suggestions may be limited or unavailable. Please update `app.py`.")
         else:
             suggestions = fmp_autocomplete.fetch_fmp_suggestions(ticker_input, api_key=FMP_API_KEY)
