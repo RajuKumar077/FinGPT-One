@@ -5,19 +5,11 @@ import warnings
 import time
 import requests
 import json
-import os # Imported for potential future path operations if needed, but not for local CSV fallback.
+import os # Imported for potential future path operations if needed.
 import yfinance as yf # Retained as a fallback after pandas_datareader
-import pandas_datareader.data as web # NEW: For historical data via pandas_datareader
+import pandas_datareader.data as web # For historical data via pandas_datareader
 
 warnings.filterwarnings('ignore')  # Suppress warnings for cleaner output
-
-# Import functions from your separate modules
-import pages.fmp_autocomplete as fmp_autocomplete
-import pages.stock_summary as stock_summary
-import pages.financials as financials
-import pages.probabilistic_stock_model as probabilistic_stock_model
-import pages.forecast_module as forecast_module
-import pages.news_sentiment as news_sentiment
 
 # --- GLOBAL CONFIGURATIONS AND INITIAL STREAMLIT SETUP ---
 st.set_page_config(
@@ -88,8 +80,8 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
     try:
         with st.spinner(f"pandas_datareader for {ticker_symbol}..."):
             # Fetch data from Yahoo using pandas_datareader
-            # Default behavior is to get maximum available data
-            hist_df_pd = web.DataReader(ticker_symbol, data_source='yahoo', start='2000-01-01', timeout=15)
+            # REMOVED 'timeout' argument as it's causing an error in some versions/connectors
+            hist_df_pd = web.DataReader(ticker_symbol, data_source='yahoo', start='2000-01-01')
 
         if not hist_df_pd.empty:
             hist_df_pd.reset_index(inplace=True)
@@ -216,7 +208,7 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
                 elif "Error Message" in data_av:
                     st.error(f"❌ Alpha Vantage API Error for {ticker_symbol}: {data_av['Error Message']}. Please check your API key or usage limits.")
                     print(f"DEBUG: Alpha Vantage API Error: {data_av['Error Message']}")
-                elif "Information" in data_av: # Adjusted to catch explicit premium messages
+                elif "Information" in data_av:
                     st.error(f"❌ Alpha Vantage Information Message for {ticker_symbol}: {data_av['Information']}. This often indicates a rate limit, invalid ticker, or API key issue (e.g., premium endpoint).")
                     print(f"DEBUG: Alpha Vantage Information Message: {data_av['Information']}")
                 else:
