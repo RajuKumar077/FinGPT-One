@@ -49,7 +49,7 @@ st.markdown("""
 NEWS_API_KEY = "874ba654bdcd4aa7b68f7367a907cc2f" # Get your free key from newsapi.com
 FMP_API_KEY = "5C9DnMCAzYam2ZPjNpOxKLFxUiGhrJDD"     # Your provided FMP key
 GEMINI_API_KEY = "AIzaSyAK8BevJ1wIrwMoYDsnCLQXdZlFglF92WE" # Your provided Gemini key
-ALPHA_VANTAGE_API_KEY = "WLVUE35CQ906QK3K" # IMPORTANT: Get your free key from www.alphavantage.co
+ALPHA_VANTAGE_API_KEY = "YOUR_ALPHA_VANTAGE_API_KEY" # IMPORTANT: Get your free key from www.alphavantage.co
 
 # --- Custom CSS and Font Loading ---
 def load_css(file_path):
@@ -70,7 +70,7 @@ load_css("assets/style.css")
 @st.cache_data(ttl=3600, show_spinner=False)  # Cache historical data for 1 hour
 def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
     """
-    Loads historical stock data, first attempting yfinance, then Alpha Vantage, then FMP (historical-chart/daily).
+    Loads historical stock data, first attempting yfinance, then Alpha Vantage, then FMP (various endpoints).
     This function relies purely on online APIs as per user's request.
     """
     if not ticker_symbol:
@@ -79,7 +79,7 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
     hist_df = pd.DataFrame()
 
     # --- Attempt 1: Try yfinance with multiple periods ---
-    st.info(f"Attempt 1/3: Trying to load historical data for {ticker_symbol} using yfinance (primary source)...")
+    st.info(f"Attempt 1/4: Trying to load historical data for {ticker_symbol} using yfinance (primary source)...")
     periods_to_try_yf = ["max", "5y", "2y", "1y", "6mo", "3mo", "1mo"] # Ordered from longest to shortest
 
     for period in periods_to_try_yf:
@@ -118,7 +118,7 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
             continue
 
     # --- Attempt 2: Fallback to Alpha Vantage if yfinance completely failed ---
-    st.info(f"Attempt 2/3: YFinance failed for {ticker_symbol}. Falling back to Alpha Vantage...")
+    st.info(f"Attempt 2/4: YFinance failed for {ticker_symbol}. Falling back to Alpha Vantage...")
     if not alpha_vantage_api_key or alpha_vantage_api_key == "YOUR_ALPHA_VANTAGE_API_KEY":
         st.error("❌ Alpha Vantage API key is not set. Cannot use Alpha Vantage as a fallback.")
     else:
@@ -194,7 +194,7 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
             print(f"DEBUG: Alpha Vantage Unexpected Error: {e}")
 
     # --- Attempt 3: Fallback to Financial Modeling Prep (FMP) historical-chart/daily ---
-    st.info(f"Attempt 3/3: YFinance and Alpha Vantage failed for {ticker_symbol}. Falling back to Financial Modeling Prep (FMP) historical chart data...")
+    st.info(f"Attempt 3/4: YFinance and Alpha Vantage failed for {ticker_symbol}. Falling back to Financial Modeling Prep (FMP) historical chart data (comprehensive)...")
     if not fmp_api_key or fmp_api_key == "YOUR_FMP_KEY":
         st.error("❌ FMP API key is not set. Cannot use FMP as a fallback for historical chart data.")
     else:
@@ -248,6 +248,74 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
         except Exception as e:
             st.error(f"❌ An unexpected error occurred while fetching historical chart data from FMP: {e}")
             print(f"DEBUG: FMP (historical chart) Unexpected Error: {e}")
+
+    # --- Attempt 4: Fallback to FMP historical-price (simpler endpoint, might be more permissive) ---
+    st.info(f"Attempt 4/4: All previous historical data sources failed for {ticker_symbol}. Trying FMP's simpler historical price endpoint...")
+    if not fmp_api_key or fmp_api_key == "YOUR_FMP_KEY":
+        st.error("❌ FMP API key is not set. Cannot use FMP historical price endpoint as a fallback.")
+    else:
+        fmp_simple_historical_url = f"https://financialmodelingprep.com/api/v3/historical-price/{ticker_symbol}"
+        params_fmp_simple = {"apikey": fmp_api_key}
+
+        try:
+            with st.spinner(f"FMP simple historical price for {ticker_symbol}..."):
+                response_fmp_simple = requests.get(fmp_simple_historical_url, params=params_fmp_simple, timeout=20)
+                response_fmp_simple.raise_for_status()
+                data_fmp_simple = response_fmp_simple.json()
+
+                if data_fmp_simple and "historical" in data_fmp_simple and data_fmp_simple["historical"]:
+                    df_fmp_simple = pd.DataFrame(data_fmp_simple["historical"])
+                    df_fmp_simple['date'] = pd.to_datetime(df_fmp_simple['date'])
+                    df_fmp_simple.sort_values('date', ascending=True, inplace=True)
+                    
+                    # This endpoint might only return 'date' and 'close'. We'll fill others with Close for consistency.
+                    df_fmp_simple.rename(columns={
+                        'date': 'Date',
+                        'open': 'Open',
+                        'high': 'High',
+                        'low': 'Low',
+                        'close': 'Close',
+                        'volume': 'Volume'
+                    }, inplace=True)
+                    
+                    df_fmp_simple['Date'] = df_fmp_simple['Date'].dt.date
+                    required_cols = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
+                    
+                    # Fill missing OHLCV columns with Close price to ensure data structure for models
+                    for col in ['Open', 'High', 'Low', 'Volume']:
+                        if col not in df_fmp_simple.columns or df_fmp_simple[col].isnull().all():
+                            df_fmp_simple[col] = df_fmp_simple['Close']
+                            st.warning(f"⚠️ Filled missing '{col}' data with 'Close' price from FMP simple endpoint for {ticker_symbol}.")
+
+                    hist_df = df_fmp_simple[required_cols].dropna().reset_index(drop=True)
+
+                    if not hist_df.empty:
+                        st.success(f"✅ Successfully loaded historical data for {ticker_symbol} using FMP (simple historical price).")
+                        print(f"DEBUG: FMP (simple historical price) data loaded for {ticker_symbol} with {len(hist_df)} rows.")
+                        return hist_df
+                    else:
+                        st.warning(f"⚠️ FMP (simple historical price) returned empty or malformed data for {ticker_symbol}.")
+                        print(f"DEBUG: FMP (simple historical price) empty/malformed data for {ticker_symbol}.")
+
+                elif isinstance(data_fmp_simple, dict) and "Error Message" in data_fmp_simple:
+                    st.error(f"❌ FMP API Error for {ticker_symbol} (simple historical price): {data_fmp_simple['Error Message']}. Check your FMP API key or usage limits.")
+                    print(f"DEBUG: FMP (simple historical price) API Error: {data_fmp_simple['Error Message']}")
+                else:
+                    st.error(f"❌ FMP (simple historical price) returned unexpected data format for {ticker_symbol}. Raw response: {data_fmp_simple}")
+                    print(f"DEBUG: FMP (simple historical price) unexpected data format: {data_fmp_simple}")
+
+        except requests.exceptions.RequestException as req_err:
+            st.error(f"❌ FMP API request failed for {ticker_symbol} (simple historical price): {req_err}. Check internet/API status.")
+            print(f"DEBUG: FMP (simple historical price) Request Error: {req_err}")
+        except json.JSONDecodeError as json_err:
+            st.error(f"❌ FMP: Received invalid JSON data for simple historical price. Error: {json_err}")
+            print(f"DEBUG: FMP (simple historical price) JSON Decode Error: {json_err}")
+        except KeyError as ke:
+            st.error(f"❌ FMP: Data parsing error - expected column not found for simple historical price. Error: {ke}. API response format may have changed.")
+            print(f"DEBUG: FMP (simple historical price) KeyError: {ke}")
+        except Exception as e:
+            st.error(f"❌ An unexpected error occurred while fetching simple historical price from FMP: {e}")
+            print(f"DEBUG: FMP (simple historical price) Unexpected Error: {e}")
 
     # --- FINAL FALLBACK MESSAGE (API-ONLY) ---
     st.error(f"""
