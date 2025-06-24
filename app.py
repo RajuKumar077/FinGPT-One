@@ -12,7 +12,6 @@ import pandas_datareader.data as web # For historical data via pandas_datareader
 warnings.filterwarnings('ignore')  # Suppress warnings for cleaner output
 
 # Import functions from your separate modules
-# THIS IS THE CRITICAL IMPORT FOR FMP_AUTOCOMPLETE
 import pages.fmp_autocomplete as fmp_autocomplete
 import pages.stock_summary as stock_summary
 import pages.financials as financials
@@ -89,7 +88,7 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
     try:
         with st.spinner(f"pandas_datareader for {ticker_symbol}..."):
             # Fetch data from Yahoo using pandas_datareader
-            # REMOVED 'timeout' argument as it's causing an error in some versions/connectors
+            # The 'timeout' argument was removed in a previous step to resolve that specific error
             hist_df_pd = web.DataReader(ticker_symbol, data_source='yahoo', start='2000-01-01')
 
         if not hist_df_pd.empty:
@@ -112,10 +111,10 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
 
     except requests.exceptions.RequestException as req_err:
         print(f"DEBUG: pandas_datareader network error for {ticker_symbol}: {req_err}")
-        st.warning(f"⚠️ pandas_datareader network error for {ticker_symbol}. Trying next source.")
+        st.warning(f"⚠️ pandas_datareader network error for {ticker_symbol}. This often means Yahoo is blocking automated access.")
     except Exception as e:
         print(f"DEBUG: Generic pandas_datareader error for {ticker_symbol}: {e}")
-        st.warning(f"⚠️ pandas_datareader data issue for {ticker_symbol}: {e}. Trying next source.")
+        st.warning(f"⚠️ pandas_datareader data issue for {ticker_symbol}: {e}. This often indicates a temporary data source problem or data unavailability.")
 
 
     # --- Attempt 2: Try yfinance with multiple periods (Fallback if pandas_datareader failed) ---
@@ -126,6 +125,7 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
         try:
             with st.spinner(f"YFinance for {ticker_symbol} (period: {period})..."):
                 ticker = yf.Ticker(ticker_symbol)
+                # yfinance often has timeout argument, keeping it here.
                 hist_df_yf = ticker.history(period=period, auto_adjust=True, timeout=15)
 
             if not hist_df_yf.empty:
@@ -148,12 +148,12 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
 
         except requests.exceptions.RequestException as req_err:
             print(f"DEBUG: yfinance network error for {ticker_symbol} ({period}): {req_err}")
-            st.warning(f"⚠️ YFinance network error for {ticker_symbol} (period: {period}). Trying next yfinance period.")
+            st.warning(f"⚠️ YFinance network error for {ticker_symbol} (period: {period}). This often means Yahoo is blocking automated access.")
             time.sleep(1)
             continue
         except Exception as e:
             print(f"DEBUG: Generic yfinance error for {ticker_symbol} ({period}): {e}")
-            st.warning(f"⚠️ YFinance data issue for {ticker_symbol} (period: {period}): {e}. This often indicates a temporary data source problem. Trying next period.")
+            st.warning(f"⚠️ YFinance data issue for {ticker_symbol} (period: {period}): {e}. This often indicates a temporary data source problem or data unavailability.")
             time.sleep(1)
             continue
 
@@ -412,7 +412,10 @@ def main():
         if FMP_API_KEY == "YOUR_FMP_KEY": 
             st.warning("⚠️ FMP_API_KEY is not set. Autocomplete suggestions may be limited or unavailable. Please update `app.py`.")
         else:
-            suggestions = fmp_autocomplete.fetch_fmp_suggestions(ticker_input, api_key=FMP_API_KEY)
+            # Removed the problematic fmp_autocomplete call here
+            # Instead, relying on the 'yahoo_autocomplete_py' file which uses Alpha Vantage for autocomplete
+            suggestions = pages.yahoo_autocomplete.fetch_yahoo_suggestions(ticker_input, api_key=ALPHA_VANTAGE_API_KEY)
+
 
     if suggestions:
         st.markdown("<h5>Suggestions:</h5>", unsafe_allow_html=True)
