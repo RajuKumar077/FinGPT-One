@@ -12,7 +12,10 @@ import pandas_datareader.data as web # For historical data via pandas_datareader
 warnings.filterwarnings('ignore')  # Suppress warnings for cleaner output
 
 # Import functions from your separate modules
-import pages.fmp_autocomplete as fmp_autocomplete
+# CRITICAL FIX: Ensure 'pages' is directly imported or modules from it are
+# We will import specific functions or modules as needed.
+# For yahoo_autocomplete, we now directly import the module:
+import pages.yahoo_autocomplete
 import pages.stock_summary as stock_summary
 import pages.financials as financials
 import pages.probabilistic_stock_model as probabilistic_stock_model
@@ -88,7 +91,7 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
     try:
         with st.spinner(f"pandas_datareader for {ticker_symbol}..."):
             # Fetch data from Yahoo using pandas_datareader
-            # The 'timeout' argument was removed in a previous step to resolve that specific error
+            # REMOVED 'timeout' argument as it's causing an error in some versions/connectors
             hist_df_pd = web.DataReader(ticker_symbol, data_source='yahoo', start='2000-01-01')
 
         if not hist_df_pd.empty:
@@ -412,8 +415,7 @@ def main():
         if FMP_API_KEY == "YOUR_FMP_KEY": 
             st.warning("⚠️ FMP_API_KEY is not set. Autocomplete suggestions may be limited or unavailable. Please update `app.py`.")
         else:
-            # Removed the problematic fmp_autocomplete call here
-            # Instead, relying on the 'yahoo_autocomplete_py' file which uses Alpha Vantage for autocomplete
+            # CORRECTED CALL: Using the now correctly imported pages.yahoo_autocomplete
             suggestions = pages.yahoo_autocomplete.fetch_yahoo_suggestions(ticker_input, api_key=ALPHA_VANTAGE_API_KEY)
 
 
