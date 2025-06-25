@@ -4,6 +4,7 @@ import requests
 import json
 import time
 import pandas as pd
+from datetime import datetime, timedelta
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def generate_llm_insight(company_name, description, industry, sector, gemini_api_key, retries=2, initial_delay=1):
@@ -139,7 +140,7 @@ def get_company_overview(ticker_symbol, fmp_api_key, retries=3, initial_delay=1)
                     break
                 else:
                     if attempt == retries:
-                        st.info(f"FMP profile data not found for {ticker_symbol}.")
+                        st.info(f"FMP profile data not found for { ticker_symbol}.")
             except requests.exceptions.RequestException as req_err:
                 if attempt == retries:
                     st.error(f"⚠️ FMP request error for {ticker_symbol}: {req_err}")
@@ -151,6 +152,96 @@ def get_company_overview(ticker_symbol, fmp_api_key, retries=3, initial_delay=1)
         st.error(f"❌ Could not retrieve company information for {ticker_symbol}.")
         return None
     return company_info
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key, period="1y", retries=3, initial_delay=1):
+    """
+    Fetch historical stock price data, trying yfinance first, then Alpha Vantage, then FMP.
+    
+    Args:
+        ticker_symbol (str): Stock ticker (e.g., 'AAPL').
+        alpha_vantage_api_key (str): Alpha Vantage API key.
+        fmp_api_key (str): Financial Modeling Prep API key.
+        period (str): Data period (e.g., '1y', '6mo', '1mo').
+        retries (int): Number of retry attempts for API requests.
+        initial_delay (float): Initial delay before API calls (in seconds).
+    
+    Returns:
+        pd.DataFrame: Historical data or empty DataFrame on failure.
+    """
+    # Try yfinance first
+    try:
+        stock = yf.Ticker(ticker_symbol)
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=365 if period == "1y" else 180 if period == "6mo" else 30)
+        data = stock.history(start=start_date, end=end_date, interval="1d")
+        if not data.empty:
+            return data
+        st.warning(f"⚠️ No historical data found for {ticker_symbol} using yfinance.")
+    except Exception as e:
+        st.warning(f"⚠️ yfinance failed for {ticker_symbol}: {e}")
+
+    # Try Alpha Vantage
+    if alpha_vantage_api_key and alpha_vantage_api_key != "YOUR_ALPHA_VANTAGE_API_KEY":
+        try:
+            url = f"https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol={ticker_symbol}&apikey={alpha_vantage_api_key}&outputsize=full"
+            for attempt in range(retries):
+                if attempt > 0:
+                    time.sleep(initial_delay * (2 ** (attempt - 1)))
+                response = requests.get(url, timeout=15)
+                response.raise_for_status()
+                data = response.json()
+                if "Time Series (Daily)" in data:
+                    df = pd.DataFrame(data["Time Series (Daily)"]).T
+                    df.index = pd.to_datetime(df.index)
+                    df = df.astype(float)
+                    df = df.rename(columns={
+                        "1. open": "Open", "2. high": "High", "3. low": "Low",
+                        "4. close": "Close", "5. volume": "Volume"
+                    })
+                    start_date = pd.to_datetime(start_date)
+                    end_date = pd.to_datetime(end_date)
+                    df = df[(df.index >= start_date) & (df.index <= end_date)]
+                    if not df.empty:
+                        return df
+                    st.warning(f"⚠️ No historical data found for {ticker_symbol} using Alpha Vantage.")
+                elif "Error Message" in data or "Information" in data:
+                    st.error(f"⚠️ Alpha Vantage error: {data.get('Error Message', data.get('Information', 'Unknown error'))}")
+                if attempt == retries - 1:
+                    break
+        except Exception as e:
+            st.error(f"⚠️ Alpha Vantage failed for {ticker_symbol}: {e}")
+
+    # Try FMP
+    if fmp_api_key and fmp_api_key != "YOUR_FMP_API_KEY":
+        try:
+            url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{ticker_symbol}?from={start_date.strftime('%Y-%m-%d')}&to={end_date.strftime('%Y-%m-%d')}&apikey={fmp_api_key}"
+            for attempt in range(retries):
+                if attempt > 0:
+                    time.sleep(initial_delay * (2 ** (attempt - 1)))
+                response = requests.get(url, timeout=10)
+                response.raise_for_status()
+                data = response.json()
+                if isinstance(data, dict) and data.get("historical"):
+                    df = pd.DataFrame(data["historical"])
+                    if not df.empty:
+                        df["date"] = pd.to_datetime(df["date"])
+                        df = df.set_index("date")
+                        df = df.rename(columns={
+                            "open": "Open", "high": "High", "low": "Low",
+                            "close": "Close", "volume": "Volume"
+                        })
+                        return df[["Open", "High", "Low", "Close", "Volume"]]
+                    st.warning(f"⚠️ No historical data found for {ticker_symbol} using FMP.")
+                elif isinstance(data, list) and not data:
+                    st.warning(f"⚠️ FMP returned empty data for {ticker_symbol}.")
+                if attempt == retries - 1:
+                    break
+        except Exception as e:
+            st.error(f"⚠️ FMP failed for {ticker_symbol}: {e}")
+
+    st.error(f"❌ No historical data available for {ticker_symbol} from any source.")
+    return pd.DataFrame()
 
 def format_value(value, is_currency=False):
     """Helper function to format large numbers for display."""
@@ -175,7 +266,7 @@ def format_value(value, is_currency=False):
     except (ValueError, TypeError):
         return str(value)
 
-def display_stock_summary(ticker_symbol, fmp_api_key, gemini_api_key):
+def display_stock_summary(ticker_symbol, fmp_api_key, gemini_api_key, alpha_vantage_api_key):
     st.subheader(f"Company Overview for {ticker_symbol.upper()}")
     overview = get_company_overview(ticker_symbol, fmp_api_key)
     if overview:
@@ -220,6 +311,15 @@ def display_stock_summary(ticker_symbol, fmp_api_key, gemini_api_key):
             st.metric("Current Volume", format_value(overview.get('volume')))
 
         st.markdown("---")
+        st.subheader("Historical Data")
+        with st.spinner(f"Fetching historical data for {ticker_symbol}..."):
+            historical_data = fetch_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key)
+            if not historical_data.empty:
+                st.dataframe(historical_data.tail(10), use_container_width=True)  # Show last 10 days
+            else:
+                st.error(f"❌ No historical data available for {ticker_symbol}. Check API keys or try another ticker.")
+
+        st.markdown("---")
         st.subheader("Company Details")
         st.write(f"**CEO:** {overview.get('ceo', 'N/A')}")
         st.write(f"**Website:** [{overview.get('website', 'N/A')}]({overview.get('website', '#')})")
@@ -228,7 +328,7 @@ def display_stock_summary(ticker_symbol, fmp_api_key, gemini_api_key):
         st.write(f"**Fiscal Year End:** {overview.get('fiscalYearEnd', 'N/A')}")
         
         st.warning("""
-        ⚠️ **Disclaimer:** Data sourced from yfinance and Financial Modeling Prep (FMP) free tiers. Information may be incomplete, delayed, or subject to API limits. For critical decisions, consult official company reports.  
+        ⚠️ **Disclaimer:** Data sourced from yfinance, Alpha Vantage, and Financial Modeling Prep (FMP) free tiers. Information may be incomplete, delayed, or subject to API limits. For critical decisions, consult official company reports.  
         🧠 **AI Insight Disclaimer:** Generated by Google Gemini. Not financial advice. Verify facts independently.
         """)
     else:
