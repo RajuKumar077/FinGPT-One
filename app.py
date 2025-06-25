@@ -12,9 +12,7 @@ import pandas_datareader.data as web # For historical data via pandas_datareader
 warnings.filterwarnings('ignore')  # Suppress warnings for cleaner output
 
 # Import functions from your separate modules
-# CRITICAL FIX: Ensure 'pages' is directly imported or modules from it are
-# We will import specific functions or modules as needed.
-# For yahoo_autocomplete, we now directly import the module:
+# CRITICAL FIX: Ensure 'pages' is directly imported for nested modules
 import pages.yahoo_autocomplete
 import pages.stock_summary as stock_summary
 import pages.financials as financials
@@ -234,7 +232,7 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
             st.error(f"❌ Alpha Vantage: Received invalid JSON data. Error: {json_err}")
             print(f"DEBUG: Alpha Vantage JSON Decode Error: {json_err}")
         except KeyError as ke:
-            st.error(f"❌ Alpha Vantage: Data parsing error - expected column not found. Error: {ke}. API response format may have changed.")
+            st.error(f"❌ Data parsing error - expected column not found. Error: {ke}. API response format may have changed.")
             print(f"DEBUG: Alpha Vantage KeyError: {ke}")
         except Exception as e:
             st.error(f"❌ An unexpected error occurred while fetching from Alpha Vantage: {e}")
@@ -290,7 +288,7 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
             st.error(f"❌ FMP: Received invalid JSON data for historical chart data. Error: {json_err}")
             print(f"DEBUG: FMP (historical chart) JSON Decode Error: {json_err}")
         except KeyError as ke:
-            st.error(f"❌ FMP: Data parsing error - expected column not found for historical chart data. Error: {ke}. API response format may have changed.")
+            st.error(f"❌ Data parsing error - expected column not found for historical chart data. Error: {ke}. API response format may have changed.")
             print(f"DEBUG: FMP (historical chart) KeyError: {ke}")
         except Exception as e:
             st.error(f"❌ An unexpected error occurred while fetching historical chart data from FMP: {e}")
@@ -356,7 +354,7 @@ def load_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key):
             st.error(f"❌ FMP: Received invalid JSON data for simple historical price. Error: {json_err}")
             print(f"DEBUG: FMP (simple historical price) JSON Decode Error: {json_err}")
         except KeyError as ke:
-            st.error(f"❌ FMP: Data parsing error - expected column not found for simple historical price. Error: {ke}. API response format may have changed.")
+            st.error(f"❌ Data parsing error - expected column not found for simple historical price. Error: {ke}. API response format may have changed.")
             print(f"DEBUG: FMP (simple historical price) KeyError: {ke}")
         except Exception as e:
             st.error(f"❌ An unexpected error occurred while fetching simple historical price from FMP: {e}")
