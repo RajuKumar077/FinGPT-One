@@ -12,8 +12,8 @@ import pandas_datareader.data as web # For historical data via pandas_datareader
 warnings.filterwarnings('ignore')  # Suppress warnings for cleaner output
 
 # Import functions from your separate modules
-# CRITICAL FIX: Ensure 'pages' is directly imported for nested modules
-import pages.yahoo_autocomplete
+# CRITICAL FIX: Directly import the new function name
+from pages.yahoo_autocomplete import fetch_ticker_suggestions
 import pages.stock_summary as stock_summary
 import pages.financials as financials
 import pages.probabilistic_stock_model as probabilistic_stock_model
@@ -413,8 +413,8 @@ def main():
         if FMP_API_KEY == "YOUR_FMP_KEY": 
             st.warning("⚠️ FMP_API_KEY is not set. Autocomplete suggestions may be limited or unavailable. Please update `app.py`.")
         else:
-            # CORRECTED CALL: Using the now correctly imported pages.yahoo_autocomplete
-            suggestions = pages.yahoo_autocomplete.fetch_yahoo_suggestions(ticker_input, api_key=ALPHA_VANTAGE_API_KEY)
+            # CORRECTED CALL: Using the now correctly imported fetch_ticker_suggestions directly
+            suggestions = fetch_ticker_suggestions(ticker_input, api_key=ALPHA_VANTAGE_API_KEY)
 
 
     if suggestions:
