@@ -1,82 +1,78 @@
 import requests
-import time
 import json
 import streamlit as st
+import time
 
-def fetch_yahoo_suggestions(query, api_key, retries=3, initial_delay=0.75): # api_key is now correctly a required argument
+def fetch_ticker_suggestions(query: str, api_key: str, retries: int = 3, initial_delay: float = 1.0) -> list:
     """
     Fetch stock ticker suggestions using Alpha Vantage's Symbol Search Endpoint.
+    
+    Args:
+        query (str): Search query for stock tickers.
+        api_key (str): Alpha Vantage API key.
+        retries (int): Number of retry attempts for failed requests.
+        initial_delay (float): Initial delay before API calls (in seconds).
+    
+    Returns:
+        list: List of formatted ticker suggestions (e.g., "AAPL - Apple Inc. (United States)").
     """
-    print(f"DEBUG: fetch_yahoo_suggestions called with query='{query}', api_key_provided={bool(api_key)}")
-
     if not query or not api_key:
-        print("DEBUG: API key is missing or query is empty for Alpha Vantage autocomplete.")
+        st.error("❌ Missing search query or Alpha Vantage API key.")
         return []
 
     base_url = "https://www.alphavantage.co/query"
     params = {
         "function": "SYMBOL_SEARCH",
         "keywords": query,
-        "apikey": api_key # Use the passed api_key
+        "apikey": api_key
     }
 
-    for attempt in range(retries + 1):
+    for attempt in range(retries):
         try:
             if attempt > 0:
                 sleep_time = initial_delay * (2 ** (attempt - 1))
-                print(f"Retrying Alpha Vantage symbol search (attempt {attempt}/{retries}). Waiting {sleep_time:.2f} seconds...")
                 time.sleep(sleep_time)
             else:
-                time.sleep(initial_delay) # Initial delay before first API call
+                time.sleep(initial_delay)  # Initial delay before first API call
 
-            response = requests.get(base_url, params=params, timeout=15) # Increased timeout
-            response.raise_for_status() # Raise an HTTPError for bad responses (4xx or 5xx)
+            response = requests.get(base_url, params=params, timeout=15)
+            response.raise_for_status()
             data = response.json()
 
-            # --- Check for Alpha Vantage specific error messages ---
+            # Handle Alpha Vantage-specific errors
             if "Error Message" in data:
                 error_msg = data["Error Message"]
-                print(f"Alpha Vantage API Search Error: {error_msg}")
-                # More specific handling for common free tier errors
                 if "daily limit" in error_msg.lower() or "throttle" in error_msg.lower():
-                    st.warning(f"Alpha Vantage API daily limit reached for symbol search. Please try again later (max 25 calls/day for free tier).")
+                    st.warning("⚠️ Alpha Vantage API daily limit reached (25 calls/day for free tier). Try again later.")
                 elif "invalid api key" in error_msg.lower():
-                    st.error(f"❌ Alpha Vantage: Invalid API Key for symbol search. Please ensure your ALPHA_VANTAGE_API_KEY in `app.py` is correct.")
+                    st.error("❌ Invalid Alpha Vantage API key. Please check your API key in `app.py`.")
                 else:
-                    st.error(f"Alpha Vantage API search error: {error_msg}. Please check query or API key.")
-                if attempt == retries:
-                    return []
-                continue # Retry if not last attempt
+                    st.error(f"⚠️ Alpha Vantage API error: {error_msg}")
+                return []
             elif "Information" in data and "premium endpoint" in data["Information"].lower():
-                st.error(f"🚨 **Alpha Vantage API Key Error:** The symbol search endpoint might be a premium feature or your free tier limit is exhausted. "
-                         f"Please upgrade your Alpha Vantage API key to a premium plan to enable autocomplete suggestions, or wait for your daily limit to reset. "
-                         f"Details: {data['Information']}")
-                return [] # Stop retrying if it's a premium endpoint error
+                st.error(f"🚨 Alpha Vantage API error: {data['Information']}. Upgrade to a premium plan or wait for daily limit reset.")
+                return []
 
-
+            # Process suggestions
             best_matches = data.get("bestMatches", [])
-            suggestions = []
-            for item in best_matches:
-                symbol = item.get("1. symbol")
-                name = item.get("2. name", "")
-                region = item.get("4. region", "")
-                if symbol and name:
-                    suggestions.append(f"{symbol} - {name} ({region})")
+            suggestions = [
+                f"{item.get('1. symbol')} - {item.get('2. name', '')} ({item.get('4. region', '')})"
+                for item in best_matches
+                if item.get("1. symbol") and item.get("2. name")
+            ]
             return suggestions
 
         except requests.exceptions.RequestException as req_err:
-            print(f"Attempt {attempt}/{retries}: Network or API request error for symbol search: {req_err}")
-            if attempt == retries:
-                st.error(f"⚠️ Network error or API issue during symbol search. Please check your internet connection or try again later.")
+            if attempt == retries - 1:
+                st.error("⚠️ Network error during symbol search. Check your internet connection and try again.")
                 return []
         except json.JSONDecodeError as json_err:
-            print(f"Attempt {attempt}/{retries}: JSON Decode Error for symbol search: {json_err}. Response content starts with: {response.text[:200]}...")
-            if attempt == retries:
-                st.error(f"⚠️ Received invalid data from API during symbol search. Please try again later. This can happen if the API returns an empty or non-JSON response (e.g., due to a rate limit or invalid key).")
+            if attempt == retries - 1:
+                st.error("⚠️ Invalid data received from Alpha Vantage API. Try again later.")
                 return []
         except Exception as e:
-            print(f"Attempt {attempt}/{retries}: An unexpected error occurred during symbol search: {e}")
-            if attempt == retries:
-                st.error(f"⚠️ An unexpected error occurred during symbol search. Please try again later.")
+            if attempt == retries - 1:
+                st.error(f"⚠️ Unexpected error during symbol search: {str(e)}")
                 return []
-    return [] # Fallback if all retries fail
+
+    return []  # Fallback if all retries fail
