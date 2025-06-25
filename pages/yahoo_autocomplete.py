@@ -3,23 +3,21 @@ import time
 import json
 import streamlit as st
 
-# Alpha Vantage API Key - Autocomplete now uses Alpha Vantage directly
-ALPHA_VANTAGE_API_KEY = "WLVUE35CQ906QK3K" # Ensure this is your actual Alpha Vantage Key
-
-def fetch_yahoo_suggestions(query, retries=3, initial_delay=0.75):
+def fetch_yahoo_suggestions(query, api_key, retries=3, initial_delay=0.75): # api_key is now correctly a required argument
     """
     Fetch stock ticker suggestions using Alpha Vantage's Symbol Search Endpoint.
-    This API is chosen as FMP's /search endpoint often has strict limits or unexpected responses
-    on free tiers. Alpha Vantage's symbol search can be more consistent for basic lookups.
     """
-    if not query:
+    print(f"DEBUG: fetch_yahoo_suggestions called with query='{query}', api_key_provided={bool(api_key)}")
+
+    if not query or not api_key:
+        print("DEBUG: API key is missing or query is empty for Alpha Vantage autocomplete.")
         return []
 
     base_url = "https://www.alphavantage.co/query"
     params = {
         "function": "SYMBOL_SEARCH",
         "keywords": query,
-        "apikey": ALPHA_VANTAGE_API_KEY
+        "apikey": api_key # Use the passed api_key
     }
 
     for attempt in range(retries + 1):
@@ -39,8 +37,11 @@ def fetch_yahoo_suggestions(query, retries=3, initial_delay=0.75):
             if "Error Message" in data:
                 error_msg = data["Error Message"]
                 print(f"Alpha Vantage API Search Error: {error_msg}")
-                if "daily limit" in error_msg.lower() or "throttle" in error_msg.lower() or "invalid api key" in error_msg.lower():
-                    st.warning(f"Alpha Vantage API daily limit reached or invalid key for symbol search. Please try again later (max 25 calls/day for free tier).")
+                # More specific handling for common free tier errors
+                if "daily limit" in error_msg.lower() or "throttle" in error_msg.lower():
+                    st.warning(f"Alpha Vantage API daily limit reached for symbol search. Please try again later (max 25 calls/day for free tier).")
+                elif "invalid api key" in error_msg.lower():
+                    st.error(f"❌ Alpha Vantage: Invalid API Key for symbol search. Please ensure your ALPHA_VANTAGE_API_KEY in `app.py` is correct.")
                 else:
                     st.error(f"Alpha Vantage API search error: {error_msg}. Please check query or API key.")
                 if attempt == retries:
@@ -60,8 +61,6 @@ def fetch_yahoo_suggestions(query, retries=3, initial_delay=0.75):
                 name = item.get("2. name", "")
                 region = item.get("4. region", "")
                 if symbol and name:
-                    # Filter out non-stock types like ETF, Fund if necessary based on user preference
-                    # For a general stock app, keeping them is fine.
                     suggestions.append(f"{symbol} - {name} ({region})")
             return suggestions
 
@@ -73,7 +72,7 @@ def fetch_yahoo_suggestions(query, retries=3, initial_delay=0.75):
         except json.JSONDecodeError as json_err:
             print(f"Attempt {attempt}/{retries}: JSON Decode Error for symbol search: {json_err}. Response content starts with: {response.text[:200]}...")
             if attempt == retries:
-                st.error(f"⚠️ Received invalid data from API during symbol search. Please try again later.")
+                st.error(f"⚠️ Received invalid data from API during symbol search. Please try again later. This can happen if the API returns an empty or non-JSON response (e.g., due to a rate limit or invalid key).")
                 return []
         except Exception as e:
             print(f"Attempt {attempt}/{retries}: An unexpected error occurred during symbol search: {e}")
