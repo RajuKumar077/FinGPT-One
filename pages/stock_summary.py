@@ -7,11 +7,12 @@ import pandas as pd
 from datetime import datetime, timedelta
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def generate_llm_insight(company_name, description, industry, sector, gemini_api_key, retries=2, initial_delay=1):
+def generate_llm_insight(company_name, description, industry, sector, gemini_api_key, retries=3, initial_delay=1):
     """
     Generates a concise AI-powered insight about the company using Google's Gemini API.
     """
     if not gemini_api_key or gemini_api_key == "YOUR_GEMINI_API_KEY":
+        st.error("❌ Gemini API key missing or invalid in `app.py`.")
         return "AI-powered insight unavailable: GEMINI_API_KEY not set."
 
     prompt = f"""
@@ -36,7 +37,7 @@ def generate_llm_insight(company_name, description, industry, sector, gemini_api
                 sleep_time = initial_delay * (2 ** (attempt - 1))
                 time.sleep(sleep_time)
 
-            response = requests.post(api_url, headers={'Content-Type': 'application/json'}, json=payload, timeout=20)
+            response = requests.post(api_url, headers={'Content-Type': 'application/json'}, json=payload, timeout=30)
             response.raise_for_status()
             result = response.json()
 
@@ -45,38 +46,39 @@ def generate_llm_insight(company_name, description, industry, sector, gemini_api
                 return f"**AI-Powered Insight:** {insight.strip()}"
             else:
                 if "error" in result:
-                    if "API key not valid" in result["error"]["message"]:
-                        st.error("❌ Gemini API key is invalid. Please check your GEMINI_API_KEY in app.py.")
-                    elif "quota" in result["error"]["message"] or "rate limit" in result["error"]["message"]:
-                        st.warning("⚠️ Gemini API rate limit hit. AI insight unavailable.")
+                    error_msg = result["error"]["message"].lower()
+                    if "api key not valid" in error_msg:
+                        st.error("❌ Gemini API key is invalid. Verify `GEMINI_API_KEY` in `app.py`.")
+                    elif "quota" in error_msg or "rate limit" in error_msg:
+                        st.warning("⚠️ Gemini API rate limit reached. Try again later.")
                     else:
-                        st.error(f"❌ Gemini API Error: {result['error']['message']}")
+                        st.error(f"❌ Gemini API error: {result['error']['message']}")
                 if attempt == retries:
                     return "AI-powered insight could not be generated."
                 continue
             
         except requests.exceptions.HTTPError as http_err:
             if http_err.response.status_code == 429:
-                st.warning("⚠️ Gemini API rate limit hit. AI insight unavailable.")
+                st.warning("⚠️ Gemini API rate limit reached. Try again later.")
             elif http_err.response.status_code in [400, 401, 403]:
-                st.error(f"❌ Gemini API error: {http_err.response.status_code}. Check GEMINI_API_KEY.")
+                st.error(f"❌ Gemini API error (HTTP {http_err.response.status_code}): Check `GEMINI_API_KEY` in `app.py`.")
             else:
                 st.error(f"❌ Gemini API HTTP error: {http_err}")
             if attempt == retries:
                 return "AI-powered insight could not be generated."
         except requests.exceptions.RequestException as req_err:
-            st.error(f"❌ Gemini API request error: {req_err}")
+            st.error(f"⚠️ Gemini API network error: {req_err}")
             if attempt == retries:
                 return "AI-powered insight could not be generated."
         except Exception as e:
-            st.error(f"❌ Gemini API unexpected error: {e}")
+            st.error(f"⚠️ Gemini API unexpected error: {e}")
             if attempt == retries:
                 return "AI-powered insight could not be generated."
     
     return "AI-powered insight could not be generated."
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def get_company_overview(ticker_symbol, fmp_api_key, retries=3, initial_delay=1):
+def get_company_overview(ticker_symbol, fmp_api_key, retries=5, initial_delay=1):
     """
     Fetches company overview data, primarily from yfinance, with FMP as a fallback.
     """
@@ -117,14 +119,14 @@ def get_company_overview(ticker_symbol, fmp_api_key, retries=3, initial_delay=1)
     except Exception as e:
         st.warning(f"⚠️ yfinance failed for {ticker_symbol}: {e}. Trying FMP.")
 
-    if fmp_api_key and fmp_api_key != "YOUR_FMP_KEY":
+    if fmp_api_key and fmp_api_key != "YOUR_FMP_API_KEY":
         base_url_fmp = f"https://financialmodelingprep.com/api/v3/profile/{ticker_symbol}"
         params_fmp = {"apikey": fmp_api_key}
         for attempt in range(retries + 1):
             try:
                 if attempt > 0:
                     time.sleep(initial_delay * (2 ** (attempt - 1)))
-                response_fmp = requests.get(base_url_fmp, params=params_fmp, timeout=10)
+                response_fmp = requests.get(base_url_fmp, params=params_fmp, timeout=20)
                 response_fmp.raise_for_status()
                 data_fmp = response_fmp.json()
                 if data_fmp and isinstance(data_fmp, list) and data_fmp[0]:
@@ -140,10 +142,16 @@ def get_company_overview(ticker_symbol, fmp_api_key, retries=3, initial_delay=1)
                     break
                 else:
                     if attempt == retries:
-                        st.info(f"FMP profile data not found for { ticker_symbol}.")
+                        st.info(f"⚠️ FMP profile data not found for {ticker_symbol}. Check ticker or API limits.")
+            except requests.exceptions.HTTPError as http_err:
+                if attempt == retries:
+                    if http_err.response.status_code == 429:
+                        st.error(f"⚠️ FMP rate limit reached for {ticker_symbol}. Try again later.")
+                    else:
+                        st.error(f"⚠️ FMP HTTP error for {ticker_symbol}: {http_err}")
             except requests.exceptions.RequestException as req_err:
                 if attempt == retries:
-                    st.error(f"⚠️ FMP request error for {ticker_symbol}: {req_err}")
+                    st.error(f"⚠️ FMP network error for {ticker_symbol}: {req_err}")
             except Exception as e:
                 if attempt == retries:
                     st.error(f"⚠️ FMP unexpected error for {ticker_symbol}: {e}")
@@ -154,7 +162,7 @@ def get_company_overview(ticker_symbol, fmp_api_key, retries=3, initial_delay=1)
     return company_info
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def fetch_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key, period="1y", retries=3, initial_delay=1):
+def fetch_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key, period="1y", retries=5, initial_delay=1):
     """
     Fetch historical stock price data, trying yfinance first, then Alpha Vantage, then FMP.
     
@@ -169,13 +177,15 @@ def fetch_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key, per
     Returns:
         pd.DataFrame: Historical data or empty DataFrame on failure.
     """
-    # Try yfinance first
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=365 if period == "1y" else 180 if period == "6mo" else 30)
+
+    # Try yfinance
     try:
         stock = yf.Ticker(ticker_symbol)
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=365 if period == "1y" else 180 if period == "6mo" else 30)
         data = stock.history(start=start_date, end=end_date, interval="1d")
         if not data.empty:
+            data = data[["Open", "High", "Low", "Close", "Volume"]].round(2)
             return data
         st.warning(f"⚠️ No historical data found for {ticker_symbol} using yfinance.")
     except Exception as e:
@@ -184,33 +194,46 @@ def fetch_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key, per
     # Try Alpha Vantage
     if alpha_vantage_api_key and alpha_vantage_api_key != "YOUR_ALPHA_VANTAGE_API_KEY":
         try:
-            url = f"https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol={ticker_symbol}&apikey={alpha_vantage_api_key}&outputsize=full"
+            url = f"https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol={ticker_symbol}&apikey={alpha_vantage_api_key}&outputsize=compact"
             for attempt in range(retries):
                 if attempt > 0:
                     time.sleep(initial_delay * (2 ** (attempt - 1)))
-                response = requests.get(url, timeout=15)
+                response = requests.get(url, timeout=20)
                 response.raise_for_status()
                 data = response.json()
                 if "Time Series (Daily)" in data:
                     df = pd.DataFrame(data["Time Series (Daily)"]).T
                     df.index = pd.to_datetime(df.index)
-                    df = df.astype(float)
+                    df = df.astype(float).round(2)
                     df = df.rename(columns={
                         "1. open": "Open", "2. high": "High", "3. low": "Low",
                         "4. close": "Close", "5. volume": "Volume"
                     })
-                    start_date = pd.to_datetime(start_date)
-                    end_date = pd.to_datetime(end_date)
                     df = df[(df.index >= start_date) & (df.index <= end_date)]
                     if not df.empty:
-                        return df
+                        return df[["Open", "High", "Low", "Close", "Volume"]]
                     st.warning(f"⚠️ No historical data found for {ticker_symbol} using Alpha Vantage.")
                 elif "Error Message" in data or "Information" in data:
-                    st.error(f"⚠️ Alpha Vantage error: {data.get('Error Message', data.get('Information', 'Unknown error'))}")
+                    error_msg = data.get("Error Message", data.get("Information", "Unknown error")).lower()
+                    if "premium endpoint" in error_msg:
+                        st.error(f"⚠️ Alpha Vantage error: Premium endpoint not available with free-tier key. Try again later or rely on yfinance.")
+                    elif "invalid api key" in error_msg:
+                        st.error(f"❌ Invalid Alpha Vantage API key. Verify `ALPHA_VANTAGE_API_KEY` in `app.py`.")
+                    elif "limit" in error_msg:
+                        st.error(f"⚠️ Alpha Vantage rate limit reached (25 calls/day or 5 calls/min). Try again later.")
+                    else:
+                        st.error(f"⚠️ Alpha Vantage error: {error_msg}")
                 if attempt == retries - 1:
                     break
+        except requests.exceptions.HTTPError as http_err:
+            if attempt == retries - 1:
+                st.error(f"⚠️ Alpha Vantage HTTP error for {ticker_symbol}: {http_err}")
+        except requests.exceptions.RequestException as req_err:
+            if attempt == retries - 1:
+                st.error(f"⚠️ Alpha Vantage network error for {ticker_symbol}: {req_err}")
         except Exception as e:
-            st.error(f"⚠️ Alpha Vantage failed for {ticker_symbol}: {e}")
+            if attempt == retries - 1:
+                st.error(f"⚠️ Alpha Vantage unexpected error for {ticker_symbol}: {e}")
 
     # Try FMP
     if fmp_api_key and fmp_api_key != "YOUR_FMP_API_KEY":
@@ -219,7 +242,7 @@ def fetch_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key, per
             for attempt in range(retries):
                 if attempt > 0:
                     time.sleep(initial_delay * (2 ** (attempt - 1)))
-                response = requests.get(url, timeout=10)
+                response = requests.get(url, timeout=20)
                 response.raise_for_status()
                 data = response.json()
                 if isinstance(data, dict) and data.get("historical"):
@@ -231,14 +254,27 @@ def fetch_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key, per
                             "open": "Open", "high": "High", "low": "Low",
                             "close": "Close", "volume": "Volume"
                         })
-                        return df[["Open", "High", "Low", "Close", "Volume"]]
+                        df = df[["Open", "High", "Low", "Close", "Volume"]].round(2)
+                        return df
                     st.warning(f"⚠️ No historical data found for {ticker_symbol} using FMP.")
                 elif isinstance(data, list) and not data:
-                    st.warning(f"⚠️ FMP returned empty data for {ticker_symbol}.")
+                    st.warning(f"⚠️ FMP returned empty data for {ticker_symbol}. Check ticker or API limits.")
+                elif "error" in data.lower():
+                    st.error(f"⚠️ FMP error: {data.get('error', 'Unknown error')}")
                 if attempt == retries - 1:
                     break
+        except requests.exceptions.HTTPError as http_err:
+            if attempt == retries - 1:
+                if http_err.response.status_code == 429:
+                    st.error(f"⚠️ FMP rate limit reached for {ticker_symbol}. Try again later.")
+                else:
+                    st.error(f"⚠️ FMP HTTP error for {ticker_symbol}: {http_err}")
+        except requests.exceptions.RequestException as req_err:
+            if attempt == retries - 1:
+                st.error(f"⚠️ FMP network error for {ticker_symbol}: {req_err}")
         except Exception as e:
-            st.error(f"⚠️ FMP failed for {ticker_symbol}: {e}")
+            if attempt == retries - 1:
+                st.error(f"⚠️ FMP unexpected error for {ticker_symbol}: {e}")
 
     st.error(f"❌ No historical data available for {ticker_symbol} from any source.")
     return pd.DataFrame()
@@ -267,7 +303,12 @@ def format_value(value, is_currency=False):
         return str(value)
 
 def display_stock_summary(ticker_symbol, fmp_api_key, gemini_api_key, alpha_vantage_api_key):
-    st.subheader(f"Company Overview for {ticker_symbol.upper()}")
+    if not ticker_symbol or not isinstance(ticker_symbol, str):
+        st.error("❌ Invalid ticker symbol. Please enter a valid ticker (e.g., 'AAPL').")
+        return
+
+    ticker_symbol = ticker_symbol.strip().upper()
+    st.subheader(f"Company Overview for {ticker_symbol}")
     overview = get_company_overview(ticker_symbol, fmp_api_key)
     if overview:
         st.markdown(f"**{overview.get('companyName', 'N/A')} ({overview.get('symbol', 'N/A')})**")
@@ -315,7 +356,7 @@ def display_stock_summary(ticker_symbol, fmp_api_key, gemini_api_key, alpha_vant
         with st.spinner(f"Fetching historical data for {ticker_symbol}..."):
             historical_data = fetch_historical_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key)
             if not historical_data.empty:
-                st.dataframe(historical_data.tail(10), use_container_width=True)  # Show last 10 days
+                st.dataframe(historical_data.tail(10), use_container_width=True)
             else:
                 st.error(f"❌ No historical data available for {ticker_symbol}. Check API keys or try another ticker.")
 
