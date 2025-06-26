@@ -3,7 +3,7 @@ import pandas as pd
 import requests
 import yfinance as yf
 import time
-from pages.yahoo_autocomplete import fetch_fmp_suggestions
+from pages.yahoo_autocomplete import fetch_ticker_suggestions
 from pages.stock_summary import fetch_stock_data, display_stock_summary
 from pages.probabilistic_stock_model import display_probabilistic_models
 from pages.news_sentiment import display_news_sentiment
@@ -156,8 +156,10 @@ def main():
     # Sidebar
     st.sidebar.title("FinGPT One")
     st.sidebar.markdown("### Stock Selection")
+    if ALPHA_VANTAGE_API_KEY == "YOUR_ALPHA_VANTAGE_API_KEY":
+        st.sidebar.warning("⚠️ Alpha Vantage API key is missing. Ticker suggestions will not work.")
     query = st.sidebar.text_input("Enter ticker or company name:", value="AAPL", key="ticker_input")
-    suggestions = fetch_fmp_suggestions(query, FMP_API_KEY) if query else []
+    suggestions = fetch_ticker_suggestions(query, ALPHA_VANTAGE_API_KEY) if query else []
     selected_suggestion = st.sidebar.selectbox("Select a stock:", [""] + suggestions, key="ticker_select")
     ticker = selected_suggestion.split(" - ")[0].strip().upper() if selected_suggestion else query.strip().upper()
 
@@ -194,7 +196,7 @@ def main():
     # Display selected page
     st.markdown(f"<h2 class='section-title'>Analysis for {ticker}</h2>", unsafe_allow_html=True)
     if page == "Stock Summary":
-        if ALPHA_VANTAGE_API_KEY == "YOUR_ALPHA_VANTAGE_KEY":
+        if ALPHA_VANTAGE_API_KEY == "YOUR_ALPHA_VANTAGE_API_KEY":
             st.warning("⚠️ Alpha Vantage API key is missing. News and insights may be unavailable.")
         if GEMINI_API_KEY == "YOUR_GEMINI_API_KEY":
             st.warning("⚠️ Gemini API key is missing. AI insights will be unavailable.")
