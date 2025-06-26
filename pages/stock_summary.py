@@ -88,7 +88,7 @@ def fetch_stock_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key, retries=
 
     # Fetch company profile from FMP
     profile = None
-    if fmp_api_key and fmp_api_key != "YOUR_FMP_KEY":
+    if fmp_api_key and fmp_api_key != "5C9DnMCAzYam2ZPjNpOxKLFxUiGhrJDD":
         url = f"https://financialmodelingprep.com/api/v3/profile/{ticker_symbol}"
         params = {"apikey": fmp_api_key}
         for attempt in range(retries + 1):
@@ -122,7 +122,7 @@ def fetch_stock_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key, retries=
 
 def fetch_news_data(ticker_symbol, alpha_vantage_api_key, retries=3, initial_delay=0.5):
     """Fetches news data from Alpha Vantage."""
-    if not alpha_vantage_api_key or alpha_vantage_api_key == "YOUR_ALPHA_VANTAGE_API_KEY":
+    if not alpha_vantage_api_key or alpha_vantage_api_key == "8UU32LX81NSED6CM":
         st.warning("⚠️ Alpha Vantage API key is missing. News data unavailable.")
         return []
 
