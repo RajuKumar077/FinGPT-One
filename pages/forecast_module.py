@@ -7,131 +7,157 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
 from sklearn.metrics import mean_squared_error
 
-def display_forecasting(hist_data):
-    st.markdown("<h3 class='section-title'>Stock Price Forecasting (Linear Regression)</h3>", unsafe_allow_html=True)
-
+@st.cache_data(ttl=3600, show_spinner=False)
+def prepare_forecast_data(hist_data, ticker):
+    """Prepares historical data for forecasting by computing features."""
     if hist_data.empty:
-        st.warning("Please select a stock and load historical data to perform forecasting.")
-        return
-
-    st.markdown("<p>This section uses a simple Linear Regression model to forecast future stock prices based on historical trends. This is a basic model and should not be used for actual investment decisions.</p>", unsafe_allow_html=True)
+        return pd.DataFrame(), "No historical data provided."
 
     df = hist_data.copy()
-    
-    # Ensure 'Close' is numeric and handle potential missing values from previous steps
+    required_columns = ['Close']
+    missing_cols = [col for col in required_columns if col not in df.columns]
+    if missing_cols:
+        return pd.DataFrame(), f"Missing required columns: {', '.join(missing_cols)}."
+
+    # Ensure numeric 'Close'
     df['Close'] = pd.to_numeric(df['Close'], errors='coerce')
-    df.dropna(subset=['Close'], inplace=True) # Drop rows where 'Close' is NaN
+    if df['Close'].isnull().all():
+        return pd.DataFrame(), "All 'Close' values are invalid or missing."
 
-    if df.empty or len(df) < 50: # Need sufficient data for forecasting, e.g., for MA20
-        st.warning("Not enough valid historical data points (at least 50 with valid 'Close' prices) for forecasting. Please try a ticker with a longer history.")
-        return
-
-    # Create numerical representation of Date (e.g., days since first date)
-    df['Date_Ordinal'] = pd.to_datetime(df['Date']).apply(lambda date: date.toordinal())
-    
-    # Use a rolling mean as a simple feature, which often helps smooth out noise
+    df['Date_Ordinal'] = df.index.map(lambda x: x.toordinal())
     df['MA20'] = df['Close'].rolling(window=20).mean()
-    df.dropna(inplace=True) # Drop NaNs created by rolling mean (first 19 rows for MA20)
+    df.dropna(inplace=True)
 
-    if df.empty or len(df) < 2: # After dropping NaNs from MA20 calculation, still need enough data
-        st.warning("Not enough data after feature engineering (MA20 calculation) for forecasting. Ensure sufficient historical data.")
-        return
+    if df.empty or len(df) < 2:
+        return pd.DataFrame(), "Not enough data after feature engineering (MA20 calculation)."
 
-    # Define features (X) and target (y)
-    X = df[['Date_Ordinal', 'MA20']]
-    y = df['Close']
+    return df, None
 
-    # Split data into training and testing sets (chronologically)
-    train_size = int(len(df) * 0.8) # 80% for training
-    
-    # Ensure train and test sets have at least 1 sample
-    if train_size < 1:
-        st.warning("Not enough data to create a training set. Cannot train the forecasting model.")
-        return
-    if len(df) - train_size < 1:
-        st.warning("Not enough data to create a test set. Forecasting will proceed, but accuracy metrics will not be displayed.")
-        
-    X_train, X_test = X[:train_size], X[train_size:]
-    y_train, y_test = y[:train_size], y[train_size:]
-
-    # Create a pipeline with scaling and linear regression
+@st.cache_data(ttl=3600, show_spinner=False)
+def train_forecast_model(X_train, y_train):
+    """Trains a Linear Regression model for forecasting."""
     model_pipeline = Pipeline([
         ('scaler', StandardScaler()),
         ('regressor', LinearRegression())
     ])
+    model_pipeline.fit(X_train, y_train)
+    return model_pipeline
 
-    # Train the model
+def display_forecasting(hist_data, ticker):
+    """Main function to display stock price forecasting using Linear Regression."""
+    if not ticker or not isinstance(ticker, str):
+        st.error("❌ Invalid ticker symbol. Please enter a valid ticker (e.g., 'AAPL').")
+        return
+
+    ticker = ticker.strip().upper()
+    st.markdown(f"<h3 class='section-title'>Stock Price Forecasting for {ticker}</h3>", unsafe_allow_html=True)
+
+    if hist_data.empty:
+        st.warning("⚠️ No historical data provided. Please select a stock and load historical data.")
+        return
+
+    st.markdown("<p>This section uses Linear Regression to forecast stock prices based on historical trends. It is a basic model and not suitable for investment decisions.</p>", unsafe_allow_html=True)
+
+    # Prepare data
+    with st.spinner("Preparing data for forecasting..."):
+        df, error = prepare_forecast_data(hist_data, ticker)
+        if error:
+            st.warning(f"⚠️ {error} Cannot perform forecasting.")
+            return
+
+    # Check data sufficiency
+    min_data_points = 50
+    if len(df) < min_data_points:
+        st.warning(f"⚠️ Not enough valid data points ({len(df)} < {min_data_points}) for forecasting.")
+        return
+
+    # Define features and target
+    X = df[['Date_Ordinal', 'MA20']]
+    y = df['Close']
+
+    # Check for identical values (scaler would fail)
+    if y.nunique() <= 1:
+        st.warning("⚠️ All closing prices are identical. Cannot train a meaningful model.")
+        return
+
+    # Split data chronologically
+    train_size = int(len(df) * 0.8)
+    if train_size < 1:
+        st.warning("⚠️ Not enough data for training set. Cannot train model.")
+        return
+
+    X_train, X_test = X[:train_size], X[train_size:]
+    y_train, y_test = y[:train_size], y[train_size:]
+
+    # Train model
     with st.spinner("Training forecasting model..."):
-        model_pipeline.fit(X_train, y_train)
+        model = train_forecast_model(X_train.values, y_train.values)
 
-    # Make predictions on the test set and calculate RMSE, only if test set exists
+    # Evaluate model
     if not X_test.empty and not y_test.empty:
-        y_pred_test = model_pipeline.predict(X_test)
+        y_pred_test = model.predict(X_test)
         rmse = np.sqrt(mean_squared_error(y_test, y_pred_test))
         st.write(f"**Root Mean Squared Error (RMSE) on Test Set:** `{rmse:.2f}`")
     else:
-        st.info("Model performance metrics (RMSE) skipped due to insufficient data for a test set.")
-        y_pred_test = np.array([]) # Ensure it's an empty array if no test data
+        st.info("⚠️ Insufficient data for test set. Skipping performance metrics.")
+        y_pred_test = np.array([])
 
-    # --- Forecasting Future Dates ---
+    # Forecast future prices
     st.markdown("<h5>Future Price Forecast:</h5>", unsafe_allow_html=True)
-    forecast_days = st.slider("Number of days to forecast:", min_value=7, max_value=60, value=30, step=7, key=f"forecast_days_slider_{hist_data.name}")
+    forecast_days = st.slider("Number of days to forecast:", min_value=7, max_value=60, value=30, step=7, key=f"forecast_days_slider_{ticker}")
 
     last_date_ordinal = df['Date_Ordinal'].iloc[-1]
     last_ma20 = df['MA20'].iloc[-1]
 
-    future_dates_ordinal = [last_date_ordinal + i for i in range(1, forecast_days + 1)]
-    
-    # Simple linear extrapolation for MA20 for future dates.
-    # A more sophisticated model would use a separate time series forecast for MA20.
-    ma20_diff_mean = df['MA20'].diff().mean()
-    if pd.isna(ma20_diff_mean): # Handle case where MA20 has no diff (e.g., too few points after MA20 calc)
-        ma20_diff_mean = 0 
+    # Extrapolate MA20 using a simple linear regression on recent MA20 values
+    ma20_recent = df['MA20'].tail(20)
+    if len(ma20_recent) >= 2:
+        ma20_X = np.arange(len(ma20_recent)).reshape(-1, 1)
+        ma20_y = ma20_recent.values
+        ma20_model = LinearRegression().fit(ma20_X, ma20_y)
+        future_steps = np.arange(1, forecast_days + 1).reshape(-1, 1)
+        future_ma20 = ma20_model.predict(future_steps)
+        future_ma20 = np.maximum(future_ma20, 0)  # Ensure non-negative
+    else:
+        future_ma20 = [last_ma20] * forecast_days  # Fallback to last value
 
-    future_ma20 = [last_ma20 + (ma20_diff_mean * i) for i in range(1, forecast_days + 1)]
-    
-    # Create future feature set
+    future_dates_ordinal = [last_date_ordinal + i for i in range(1, forecast_days + 1)]
     X_future = pd.DataFrame({
         'Date_Ordinal': future_dates_ordinal,
         'MA20': future_ma20
     })
 
-    # Predict future prices
-    future_predictions = model_pipeline.predict(X_future)
-    future_dates = [pd.to_datetime(date, unit='D', origin='julian').date() for date in future_dates_ordinal]
+    future_predictions = model.predict(X_future)
+    future_dates = [pd.Timestamp.fromordinal(int(date)).date() for date in future_dates_ordinal]
 
     forecast_df = pd.DataFrame({
         'Date': future_dates,
-        'Predicted Close': future_predictions
+        'Predicted Close': future_predictions.round(2)
     })
 
-    st.dataframe(forecast_df.head()) # Display first few forecasted days
+    st.dataframe(forecast_df.head(), use_container_width=True)
 
-    # --- Plotting Historical Data and Forecast ---
+    # Plotting
     fig = go.Figure()
-
-    # Historical Close Price
     fig.add_trace(go.Scatter(
-        x=pd.to_datetime(df['Date']),
+        x=df.index,
         y=df['Close'],
         mode='lines',
         name='Historical Close Price',
         line=dict(color='cyan')
     ))
 
-    # Predicted values on test set (only if test set was not empty)
     if not X_test.empty:
         fig.add_trace(go.Scatter(
-            x=pd.to_datetime(df['Date'][train_size:]),
+            x=df.index[train_size:],
             y=y_pred_test,
             mode='lines',
             name='Predicted (Test Set)',
             line=dict(color='orange', dash='dot')
         ))
 
-    # Future Forecast
     fig.add_trace(go.Scatter(
-        x=pd.to_datetime(forecast_df['Date']),
+        x=forecast_df['Date'],
         y=forecast_df['Predicted Close'],
         mode='lines',
         name=f'Forecasted ({forecast_days} Days)',
@@ -139,7 +165,7 @@ def display_forecasting(hist_data):
     ))
 
     fig.update_layout(
-        title=f'📈 Stock Price Forecast for {hist_data.name}',
+        title=f'📈 Stock Price Forecast for {ticker}',
         xaxis_title='Date',
         yaxis_title='Close Price',
         template='plotly_dark',
@@ -151,8 +177,8 @@ def display_forecasting(hist_data):
 
     st.warning("""
     **Disclaimer for Forecasting:**
-    This forecasting model is a simplified demonstration using Linear Regression on historical data.
-    - **Accuracy:** Stock price prediction is extremely complex and influenced by innumerable factors (economic, geopolitical, company-specific news, market sentiment, etc.) that are not captured here.
-    - **Limitations:** This model does not account for non-linear relationships, sudden market shifts, or external shocks.
-    - **Risk:** **Do NOT use this forecast for real investment decisions.** It is for illustrative and educational purposes only.
+    This Linear Regression model is a simplified demonstration.
+    - **Accuracy:** Stock prices are influenced by complex factors not captured here.
+    - **Limitations:** Assumes linear trends, ignoring non-linear dynamics or external events.
+    - **Risk:** **Do NOT use for investment decisions.** Verify with official sources.
     """)
