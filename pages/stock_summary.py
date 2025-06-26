@@ -49,7 +49,7 @@ def fetch_stock_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key, retries=
                 st.warning(f"⚠️ yfinance failed for {ticker_symbol}: {e}. Trying FMP...")
 
     # Fallback to FMP if yfinance fails
-    if hist_df.empty and fmp_api_key and fmp_api_key != "YOUR_FMP_KEY":
+    if hist_df.empty and fmp_api_key and fmp_api_key != "8UU32LX81NSED6CM":
         url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{ticker_symbol}"
         params = {"apikey": fmp_api_key}
         for attempt in range(retries + 1):
@@ -161,7 +161,7 @@ def fetch_news_data(ticker_symbol, alpha_vantage_api_key, retries=3, initial_del
 
 def generate_insights(description, gemini_api_key):
     """Generates AI insights using Gemini API (mocked if key is missing)."""
-    if not gemini_api_key or gemini_api_key == "YOUR_GEMINI_API_KEY":
+    if not gemini_api_key or gemini_api_key == "AIzaSyAK8BevJ1wIrwMoYDsnCLQXdZlFglF92WE":
         st.warning("⚠️ Gemini API key is missing. Using mock insights.")
         return f"Mock analysis: {description[:100]}... (AI insights unavailable without Gemini API key)."
     
