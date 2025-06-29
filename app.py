@@ -1,5 +1,3 @@
-from dotenv import load_dotenv
-import os
 import streamlit as st
 import pandas as pd
 import requests
@@ -13,6 +11,7 @@ from pages.news_sentiment import display_news_sentiment
 from pages.forecast_module import display_forecasting
 from pages.financials import display_financials
 import logging
+import os
 
 # Setup logging
 logging.basicConfig(
@@ -24,8 +23,7 @@ logging.basicConfig(
     ]
 )
 
-# Load API keys from .env file
-load_dotenv()
+# API Keys (use environment variables for security)
 FMP_API_KEY = os.getenv("FMP_API_KEY", "5C9DnMCAzYam2ZPjNpOxKLFxUiGhrJDD")
 NEWS_API_KEY = os.getenv("NEWS_API_KEY", "874ba654bdcd4aa7b68f7367a907cc2f")
 ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY", "8UU32LX81NSED6CM")
@@ -206,6 +204,17 @@ def main():
     suggestions = fetch_ticker_suggestions(query, ALPHA_VANTAGE_API_KEY) if query else []
     selected_suggestion = st.sidebar.selectbox("Select a stock:", [""] + suggestions, key="ticker_select")
     ticker = selected_suggestion.split(" - ")[0].strip().upper() if selected_suggestion else query.strip().upper()
+
+    # Troubleshooting section
+    with st.sidebar.expander("ℹ️ Troubleshooting"):
+        st.markdown("""
+        If data loading fails:
+        - **Invalid Ticker**: Use correct format (e.g., 'AAPL', 'RELIANCE.NS').
+        - **Rate Limits**: Wait 24 hours if FMP limit (250/day) is reached.
+        - **API Keys**: Verify FMP key at https://financialmodelingprep.com.
+        - **Network**: Check your internet connection.
+        Try a different ticker or retry later.
+        """)
 
     page = st.sidebar.radio("Go to:", [
         "Stock Summary",
