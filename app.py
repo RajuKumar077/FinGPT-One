@@ -3,6 +3,7 @@ import pandas as pd
 import requests
 import yfinance as yf
 import time
+from retrying import retry
 from pages.yahoo_autocomplete import fetch_ticker_suggestions
 from pages.stock_summary import fetch_stock_data, display_stock_summary
 from pages.probabilistic_stock_model import display_probabilistic_models
@@ -10,15 +11,23 @@ from pages.news_sentiment import display_news_sentiment
 from pages.forecast_module import display_forecasting
 from pages.financials import display_financials
 import logging
+import os
 
 # Setup logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('app.log'),
+        logging.StreamHandler()
+    ]
+)
 
-# API Keys (replace placeholders with valid keys for full functionality)
-FMP_API_KEY = "5C9DnMCAzYam2ZPjNpOxKLFxUiGhrJDD"
-NEWS_API_KEY = "874ba654bdcd4aa7b68f7367a907cc2f"
-ALPHA_VANTAGE_API_KEY = "8UU32LX81NSED6CM"  # Replace with valid key
-GEMINI_API_KEY = "AIzaSyAK8BevJ1wIrwMoYDsnCLQXdZlFglF92WE"  # Replace with valid key
+# API Keys (use environment variables for security)
+FMP_API_KEY = os.getenv("FMP_API_KEY", "5C9DnMCAzYam2ZPjNpOxKLFxUiGhrJDD")
+NEWS_API_KEY = os.getenv("NEWS_API_KEY", "874ba654bdcd4aa7b68f7367a907cc2f")
+ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY", "8UU32LX81NSED6CM")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyAK8BevJ1wIrwMoYDsnCLQXdZlFglF92WE")
 
 # Streamlit configuration
 st.set_page_config(
@@ -59,38 +68,6 @@ st.markdown("""
 <link href='https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap' rel='stylesheet'>
 """, unsafe_allow_html=True)
 
-# --- Validate API Keys ---
-def validate_api_key(api_name, url, params):
-    try:
-        response = requests.get(url, params=params, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        # Check if response is valid (not empty and not an error)
-        if isinstance(data, (list, dict)) and "Error Message" not in data:
-            logging.info(f"{api_name} API key validated successfully")
-            return True
-        else:
-            st.warning(f"⚠️ {api_name} API key validation returned unexpected data: {data.get('Error Message', 'No data')}")
-            logging.warning(f"{api_name} API key validation failed: {data}")
-            return True  # Assume valid to avoid blocking
-    except requests.exceptions.HTTPError as http_err:
-        if http_err.response.status_code == 429:
-            st.warning(f"⚠️ {api_name} API rate limit exceeded. Data retrieval may still work.")
-        elif http_err.response.status_code in [401, 403]:
-            st.warning(f"⚠️ {api_name} API key is invalid or unauthorized. Check your key at https://financialmodelingprep.com.")
-        else:
-            st.warning(f"⚠️ {api_name} API validation failed: HTTP {http_err.response.status_code}")
-        logging.error(f"{api_name} API key validation failed: {http_err}")
-        return True  # Assume valid to avoid blocking
-    except Exception as e:
-        st.warning(f"⚠️ {api_name} API key validation failed: {e}. Assuming key is valid to avoid blocking data retrieval.")
-        logging.error(f"{api_name} API key validation failed: {e}")
-        return True  # Fallback to assume key is valid
-
-# Validate FMP API key at startup
-fmp_valid = validate_api_key("FMP", "https://financialmodelingprep.com/api/v3/profile/AAPL",
-                             {"apikey": FMP_API_KEY})
-
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_historical_data(ticker_symbol, fmp_api_key, retries=3, initial_delay=0.5):
     """
@@ -107,7 +84,12 @@ def load_historical_data(ticker_symbol, fmp_api_key, retries=3, initial_delay=0.
     """
     if not ticker_symbol or not isinstance(ticker_symbol, str):
         st.error("❌ Invalid ticker symbol.")
+        logging.error("Invalid ticker symbol provided")
         return pd.DataFrame()
+
+    # Track FMP API calls
+    if 'fmp_calls' not in st.session_state:
+        st.session_state.fmp_calls = 0
 
     # Attempt 1: yfinance
     for attempt in range(retries + 1):
@@ -141,54 +123,59 @@ def load_historical_data(ticker_symbol, fmp_api_key, retries=3, initial_delay=0.
         logging.error("FMP API key missing")
         return pd.DataFrame()
 
-    url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{ticker_symbol}"
-    params = {"apikey": fmp_api_key, "timeseries": 1260}  # Limit to ~5 years to conserve quota
+    if st.session_state.fmp_calls >= 240:
+        st.warning("⚠️ Approaching FMP API daily limit (250 requests). Consider pausing or upgrading your plan.")
+        logging.warning("Approaching FMP API daily limit")
 
-    for attempt in range(retries + 1):
-        try:
-            if attempt > 0:
-                time.sleep(initial_delay * (2 ** (attempt - 1)))
-            with st.spinner(f"Fetching historical data for {ticker_symbol} via FMP..."):
-                response = requests.get(url, params=params, timeout=20)
-                response.raise_for_status()
-                data = response.json()
-                if data and "historical" in data and data["historical"]:
-                    df = pd.DataFrame(data["historical"])
-                    df['date'] = pd.to_datetime(df['date']).dt.date
-                    df = df.rename(columns={
-                        'date': 'Date', 'open': 'Open', 'high': 'High', 'low': 'Low',
-                        'close': 'Close', 'volume': 'Volume'
-                    })
-                    df = df[['Date', 'Open', 'High', 'Low', 'Close', 'Volume']]
-                    df = df.sort_values('Date').set_index('Date')
-                    for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
-                        df[col] = pd.to_numeric(df[col], errors='coerce')
-                    df = df.dropna()
-                    if not df.empty:
-                        st.success(f"✅ Loaded historical data for {ticker_symbol} via FMP.")
-                        logging.info(f"FMP success for {ticker_symbol}: {len(df)} rows")
-                        return df
-                if attempt == retries:
-                    st.warning(f"⚠️ FMP returned no historical data for {ticker_symbol}.")
-                    logging.warning(f"FMP no data for {ticker_symbol}: {data}")
-                    return pd.DataFrame()
-        except requests.exceptions.HTTPError as http_err:
-            if attempt == retries:
-                if http_err.response.status_code == 429:
-                    st.error(f"⚠️ FMP API rate limit reached (250 requests/day) for {ticker_symbol}. Please wait 24 hours or upgrade your plan.")
-                    logging.error(f"FMP rate limit reached for {ticker_symbol}")
-                elif http_err.response.status_code in [401, 403]:
-                    st.error(f"❌ FMP API key unauthorized for {ticker_symbol}. Verify at https://financialmodelingprep.com.")
-                    logging.error(f"FMP API key unauthorized for {ticker_symbol}")
-                else:
-                    st.error(f"⚠️ FMP HTTP error for {ticker_symbol}: {http_err} (Status: {http_err.response.status_code})")
-                    logging.error(f"FMP HTTP error for {ticker_symbol}: {http_err}")
+    url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{ticker_symbol}"
+    params = {"apikey": fmp_api_key, "timeseries": 1260}  # Limit to ~5 years
+
+    @retry(stop_max_attempt_number=retries, wait_exponential_multiplier=int(initial_delay * 1000))
+    def fetch_fmp():
+        response = requests.get(url, params=params, timeout=20)
+        response.raise_for_status()
+        return response.json()
+
+    try:
+        with st.spinner(f"Fetching historical data for {ticker_symbol} via FMP..."):
+            st.session_state.fmp_calls += 1
+            data = fetch_fmp()
+            if data and "historical" in data and data["historical"]:
+                df = pd.DataFrame(data["historical"])
+                df['date'] = pd.to_datetime(df['date']).dt.date
+                df = df.rename(columns={
+                    'date': 'Date', 'open': 'Open', 'high': 'High', 'low': 'Low',
+                    'close': 'Close', 'volume': 'Volume'
+                })
+                df = df[['Date', 'Open', 'High', 'Low', 'Close', 'Volume']]
+                df = df.sort_values('Date').set_index('Date')
+                for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
+                df = df.dropna()
+                if not df.empty:
+                    st.success(f"✅ Loaded historical data for {ticker_symbol} via FMP.")
+                    logging.info(f"FMP success for {ticker_symbol}: {len(df)} rows")
+                    return df
+            else:
+                st.warning(f"⚠️ FMP returned no historical data for {ticker_symbol}.")
+                logging.warning(f"FMP no data for {ticker_symbol}: {data}")
                 return pd.DataFrame()
-        except Exception as e:
-            if attempt == retries:
-                st.error(f"⚠️ FMP error for {ticker_symbol}: {e}")
-                logging.error(f"FMP error for {ticker_symbol}: {e}")
-                return pd.DataFrame()
+    except requests.exceptions.HTTPError as http_err:
+        if http_err.response.status_code == 429:
+            st.error(f"⚠️ FMP API rate limit reached (250 requests/day) for {ticker_symbol}. Please wait 24 hours or upgrade your plan.")
+            logging.error(f"FMP rate limit reached for {ticker_symbol}")
+        elif http_err.response.status_code in [401, 403]:
+            st.error(f"❌ FMP API key unauthorized for {ticker_symbol}. Verify at https://financialmodelingprep.com.")
+            logging.error(f"FMP API key unauthorized for {ticker_symbol}")
+        else:
+            st.error(f"⚠️ FMP HTTP error for {ticker_symbol}: {http_err} (Status: {http_err.response.status_code})")
+            logging.error(f"FMP HTTP error for {ticker_symbol}: {http_err}")
+        return pd.DataFrame()
+    except Exception as e:
+        st.error(f"⚠️ FMP error for {ticker_symbol}: {e}")
+        logging.error(f"FMP error for {ticker_symbol}: {e}")
+        return pd.DataFrame()
+
     st.error(f"""
     ❌ Failed to load historical data for {ticker_symbol} from all online sources.
     Possible reasons:
@@ -217,6 +204,17 @@ def main():
     suggestions = fetch_ticker_suggestions(query, ALPHA_VANTAGE_API_KEY) if query else []
     selected_suggestion = st.sidebar.selectbox("Select a stock:", [""] + suggestions, key="ticker_select")
     ticker = selected_suggestion.split(" - ")[0].strip().upper() if selected_suggestion else query.strip().upper()
+
+    # Troubleshooting section
+    with st.sidebar.expander("ℹ️ Troubleshooting"):
+        st.markdown("""
+        If data loading fails:
+        - **Invalid Ticker**: Use correct format (e.g., 'AAPL', 'RELIANCE.NS').
+        - **Rate Limits**: Wait 24 hours if FMP limit (250/day) is reached.
+        - **API Keys**: Verify FMP key at https://financialmodelingprep.com.
+        - **Network**: Check your internet connection.
+        Try a different ticker or retry later.
+        """)
 
     page = st.sidebar.radio("Go to:", [
         "Stock Summary",
