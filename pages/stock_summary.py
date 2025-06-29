@@ -127,17 +127,11 @@ def fetch_stock_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key, retries=
 
     return hist_df, profile
 
-def display_stock_summary():
+def display_stock_summary(ticker_symbol, hist_data, fmp_api_key, alpha_vantage_api_key, gemini_api_key):
     """Displays the stock summary page with price data and company profile."""
-    ticker = st.session_state.get('current_ticker', 'AAPL')
-    st.subheader(f"Stock Summary for {ticker}")
+    st.subheader(f"Stock Summary for {ticker_symbol}")
 
-    if ALPHA_VANTAGE_API_KEY == "YOUR_ALPHA_VANTAGE_API_KEY":
-        st.warning("⚠️ Alpha Vantage API key is missing. News and insights may be unavailable.")
-    if GEMINI_API_KEY == "YOUR_GEMINI_API_KEY":
-        st.warning("⚠️ Gemini API key is missing. AI insights will be unavailable.")
-
-    hist_data, profile = fetch_stock_data(ticker, ALPHA_VANTAGE_API_KEY, FMP_API_KEY)
+    hist_data, profile = fetch_stock_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key)
 
     # Display company profile
     if profile:
@@ -156,7 +150,7 @@ def display_stock_summary():
         # AI Insights (mocked if no Gemini key)
         if profile.get('description'):
             st.markdown("##### AI Insights")
-            if GEMINI_API_KEY and GEMINI_API_KEY != "YOUR_GEMINI_API_KEY":
+            if gemini_api_key and gemini_api_key != "YOUR_GEMINI_API_KEY":
                 st.write("AI insights not implemented in this version.")
             else:
                 st.write(f"Mock analysis: {profile.get('description')[:100]}... (AI insights unavailable without Gemini API key).")
@@ -189,7 +183,7 @@ def display_stock_summary():
             line=dict(color='#00ACC1')
         ))
         fig.update_layout(
-            title=f"Price History for {ticker}",
+            title=f"Price History for {ticker_symbol}",
             xaxis_title="Date",
             yaxis_title="Price (USD)",
             template='plotly_dark',
