@@ -246,7 +246,7 @@ def main():
             st.warning("⚠️ Gemini API key is missing. AI insights will be unavailable.")
         display_stock_summary(ticker, hist_data, FMP_API_KEY, ALPHA_VANTAGE_API_KEY, GEMINI_API_KEY)
     elif page == "Probabilistic Models":
-        if hist_data.empty:
+        if hist_data is None or hist_data.empty:
             st.error("❌ No historical data available for probabilistic models.")
         else:
             display_probabilistic_models(hist_data)
@@ -256,7 +256,7 @@ def main():
         else:
             display_news_sentiment(ticker, NEWS_API_KEY, FMP_API_KEY)
     elif page == "Forecasting":
-        if hist_data.empty:
+        if hist_data is None or hist_data.empty:
             st.error("❌ No historical data available for forecasting.")
         else:
             display_forecasting(hist_data, ticker)
