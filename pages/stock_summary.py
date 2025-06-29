@@ -5,6 +5,13 @@ import requests
 import plotly.graph_objects as go
 import time
 from textblob import TextBlob
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+FMP_API_KEY = os.getenv("FMP_API_KEY", "5C9DnMCAzYam2ZPjNpOxKLFxUiGhrJDD")
+ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY", "8UU32LX81NSED6CM")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyAK8BevJ1wIrwMoYDsnCLQXdZlFglF92WE")
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_stock_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key, retries=3, initial_delay=0.5):
@@ -49,7 +56,7 @@ def fetch_stock_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key, retries=
                 st.warning(f"⚠️ yfinance failed for {ticker_symbol}: {e}. Trying FMP...")
 
     # Fallback to FMP if yfinance fails
-    if hist_df.empty and fmp_api_key and fmp_api_key != "5C9DnMCAzYam2ZPjNpOxKLFxUiGhrJDD":
+    if hist_df.empty and fmp_api_key and fmp_api_key != "YOUR_FMP_KEY":
         url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{ticker_symbol}"
         params = {"apikey": fmp_api_key}
         for attempt in range(retries + 1):
@@ -88,7 +95,7 @@ def fetch_stock_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key, retries=
 
     # Fetch company profile from FMP
     profile = None
-    if fmp_api_key and fmp_api_key != "5C9DnMCAzYam2ZPjNpOxKLFxUiGhrJDD":
+    if fmp_api_key and fmp_api_key != "YOUR_FMP_KEY":
         url = f"https://financialmodelingprep.com/api/v3/profile/{ticker_symbol}"
         params = {"apikey": fmp_api_key}
         for attempt in range(retries + 1):
@@ -120,14 +127,39 @@ def fetch_stock_data(ticker_symbol, alpha_vantage_api_key, fmp_api_key, retries=
 
     return hist_df, profile
 
-def display_stock_summary(ticker_symbol, hist_data, fmp_api_key, alpha_vantage_api_key, gemini_api_key):
+def display_stock_summary():
     """Displays the stock summary page with price data and company profile."""
-    if not ticker_symbol or not isinstance(ticker_symbol, str):
-        st.error("❌ Invalid ticker symbol.")
-        return
+    ticker = st.session_state.get('current_ticker', 'AAPL')
+    st.subheader(f"Stock Summary for {ticker}")
 
-    ticker_symbol = ticker_symbol.strip().upper()
-    st.subheader(f"Stock Summary for {ticker_symbol}")
+    if ALPHA_VANTAGE_API_KEY == "YOUR_ALPHA_VANTAGE_API_KEY":
+        st.warning("⚠️ Alpha Vantage API key is missing. News and insights may be unavailable.")
+    if GEMINI_API_KEY == "YOUR_GEMINI_API_KEY":
+        st.warning("⚠️ Gemini API key is missing. AI insights will be unavailable.")
+
+    hist_data, profile = fetch_stock_data(ticker, ALPHA_VANTAGE_API_KEY, FMP_API_KEY)
+
+    # Display company profile
+    if profile:
+        st.markdown("##### Company Profile")
+        cols = st.columns(2)
+        with cols[0]:
+            st.markdown(f"**Name**: {profile.get('companyName', 'N/A')}")
+            st.markdown(f"**Sector**: {profile.get('sector', 'N/A')}")
+            st.markdown(f"**Industry**: {profile.get('industry', 'N/A')}")
+        with cols[1]:
+            st.markdown(f"**Market Cap**: ${profile.get('mktCap', 'N/A'):,.0f}")
+            st.markdown(f"**Exchange**: {profile.get('exchangeShortName', 'N/A')}")
+            st.markdown(f"**Website**: [{profile.get('website', 'N/A')}]({profile.get('website', '#')})")
+        st.markdown(f"**Description**: {profile.get('description', 'No description available.')}")
+        
+        # AI Insights (mocked if no Gemini key)
+        if profile.get('description'):
+            st.markdown("##### AI Insights")
+            if GEMINI_API_KEY and GEMINI_API_KEY != "YOUR_GEMINI_API_KEY":
+                st.write("AI insights not implemented in this version.")
+            else:
+                st.write(f"Mock analysis: {profile.get('description')[:100]}... (AI insights unavailable without Gemini API key).")
 
     # Display price data
     if not hist_data.empty:
@@ -157,7 +189,7 @@ def display_stock_summary(ticker_symbol, hist_data, fmp_api_key, alpha_vantage_a
             line=dict(color='#00ACC1')
         ))
         fig.update_layout(
-            title=f"Price History for {ticker_symbol}",
+            title=f"Price History for {ticker}",
             xaxis_title="Date",
             yaxis_title="Price (USD)",
             template='plotly_dark',
