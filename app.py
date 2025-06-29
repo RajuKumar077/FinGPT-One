@@ -9,6 +9,10 @@ from pages.probabilistic_stock_model import display_probabilistic_models
 from pages.news_sentiment import display_news_sentiment
 from pages.forecast_module import display_forecasting
 from pages.financials import display_financials
+import logging
+
+# Setup logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # API Keys (replace placeholders with valid keys for full functionality)
 FMP_API_KEY = "5C9DnMCAzYam2ZPjNpOxKLFxUiGhrJDD"
@@ -55,6 +59,38 @@ st.markdown("""
 <link href='https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap' rel='stylesheet'>
 """, unsafe_allow_html=True)
 
+# --- Validate API Keys ---
+def validate_api_key(api_name, url, params):
+    try:
+        response = requests.get(url, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        # Check if response is valid (not empty and not an error)
+        if isinstance(data, (list, dict)) and "Error Message" not in data:
+            logging.info(f"{api_name} API key validated successfully")
+            return True
+        else:
+            st.warning(f"⚠️ {api_name} API key validation returned unexpected data: {data.get('Error Message', 'No data')}")
+            logging.warning(f"{api_name} API key validation failed: {data}")
+            return True  # Assume valid to avoid blocking
+    except requests.exceptions.HTTPError as http_err:
+        if http_err.response.status_code == 429:
+            st.warning(f"⚠️ {api_name} API rate limit exceeded. Data retrieval may still work.")
+        elif http_err.response.status_code in [401, 403]:
+            st.warning(f"⚠️ {api_name} API key is invalid or unauthorized. Check your key at https://financialmodelingprep.com.")
+        else:
+            st.warning(f"⚠️ {api_name} API validation failed: HTTP {http_err.response.status_code}")
+        logging.error(f"{api_name} API key validation failed: {http_err}")
+        return True  # Assume valid to avoid blocking
+    except Exception as e:
+        st.warning(f"⚠️ {api_name} API key validation failed: {e}. Assuming key is valid to avoid blocking data retrieval.")
+        logging.error(f"{api_name} API key validation failed: {e}")
+        return True  # Fallback to assume key is valid
+
+# Validate FMP API key at startup
+fmp_valid = validate_api_key("FMP", "https://financialmodelingprep.com/api/v3/profile/AAPL",
+                             {"apikey": FMP_API_KEY})
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_historical_data(ticker_symbol, fmp_api_key, retries=3, initial_delay=0.5):
     """
@@ -91,19 +127,22 @@ def load_historical_data(ticker_symbol, fmp_api_key, retries=3, initial_delay=0.
                     hist_df = hist_df.dropna()
                     if not hist_df.empty:
                         st.success(f"✅ Loaded historical data for {ticker_symbol} via yfinance.")
+                        logging.info(f"yfinance success for {ticker_symbol}: {len(hist_df)} rows")
                         return hist_df
                 break
         except Exception as e:
             if attempt == retries:
                 st.warning(f"⚠️ yfinance failed for {ticker_symbol}: {e}. Trying FMP...")
+                logging.warning(f"yfinance failed for {ticker_symbol}: {e}")
 
     # Attempt 2: FMP historical-price-full
     if not fmp_api_key or fmp_api_key == "YOUR_FMP_KEY":
         st.error("❌ FMP API key is missing. Cannot fetch historical data.")
+        logging.error("FMP API key missing")
         return pd.DataFrame()
 
     url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{ticker_symbol}"
-    params = {"apikey": fmp_api_key}
+    params = {"apikey": fmp_api_key, "timeseries": 1260}  # Limit to ~5 years to conserve quota
 
     for attempt in range(retries + 1):
         try:
@@ -127,23 +166,39 @@ def load_historical_data(ticker_symbol, fmp_api_key, retries=3, initial_delay=0.
                     df = df.dropna()
                     if not df.empty:
                         st.success(f"✅ Loaded historical data for {ticker_symbol} via FMP.")
+                        logging.info(f"FMP success for {ticker_symbol}: {len(df)} rows")
                         return df
                 if attempt == retries:
-                    st.error("⚠️ FMP returned no historical data.")
+                    st.warning(f"⚠️ FMP returned no historical data for {ticker_symbol}.")
+                    logging.warning(f"FMP no data for {ticker_symbol}: {data}")
                     return pd.DataFrame()
         except requests.exceptions.HTTPError as http_err:
             if attempt == retries:
                 if http_err.response.status_code == 429:
-                    st.error("⚠️ FMP API rate limit reached (250 requests/day).")
+                    st.error(f"⚠️ FMP API rate limit reached (250 requests/day) for {ticker_symbol}. Please wait 24 hours or upgrade your plan.")
+                    logging.error(f"FMP rate limit reached for {ticker_symbol}")
                 elif http_err.response.status_code in [401, 403]:
-                    st.error("❌ Invalid FMP API key.")
+                    st.error(f"❌ FMP API key unauthorized for {ticker_symbol}. Verify at https://financialmodelingprep.com.")
+                    logging.error(f"FMP API key unauthorized for {ticker_symbol}")
                 else:
-                    st.error(f"⚠️ FMP HTTP error: {http_err} (Status: {http_err.response.status_code})")
+                    st.error(f"⚠️ FMP HTTP error for {ticker_symbol}: {http_err} (Status: {http_err.response.status_code})")
+                    logging.error(f"FMP HTTP error for {ticker_symbol}: {http_err}")
                 return pd.DataFrame()
         except Exception as e:
             if attempt == retries:
-                st.error(f"⚠️ FMP error: {e}")
+                st.error(f"⚠️ FMP error for {ticker_symbol}: {e}")
+                logging.error(f"FMP error for {ticker_symbol}: {e}")
                 return pd.DataFrame()
+    st.error(f"""
+    ❌ Failed to load historical data for {ticker_symbol} from all online sources.
+    Possible reasons:
+    - Invalid ticker symbol (check spelling, e.g., 'AAPL' or 'RELIANCE.NS').
+    - API rate limits exceeded (wait 24 hours for FMP).
+    - Invalid or unauthorized FMP API key (verify at https://financialmodelingprep.com).
+    - Network issues (check your internet connection).
+    Please try again or use a different ticker.
+    """)
+    logging.error(f"All APIs failed for {ticker_symbol}")
     return pd.DataFrame()
 
 def main():
