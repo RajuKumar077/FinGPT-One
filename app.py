@@ -192,11 +192,6 @@ def load_historical_data(ticker_symbol, fmp_api_key, retries=3, initial_delay=0.
 
 def main():
     """Main function for the FinGPT One app."""
-    st.markdown("""
-        <h1>📈 FinGPT One - Stock Analysis Dashboard</h1>
-        <p>Comprehensive AI-powered stock analysis tool</p>
-    """, unsafe_allow_html=True)
-
     # Sidebar
     st.sidebar.title("FinGPT One")
     st.sidebar.markdown("### Stock Selection")
@@ -237,8 +232,7 @@ def main():
         else:
             hist_data = st.session_state.historical_data
 
-    # Display selected page
-    st.markdown(f"<h2 class='section-title'>Analysis for {ticker}</h2>", unsafe_allow_html=True)
+    # Display selected page directly
     if page == "Stock Summary":
         if ALPHA_VANTAGE_API_KEY == "YOUR_ALPHA_VANTAGE_API_KEY":
             st.warning("⚠️ Alpha Vantage API key is missing. News and insights may be unavailable.")
