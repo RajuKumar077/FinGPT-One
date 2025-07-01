@@ -2,227 +2,417 @@
 body {
     font-family: 'Inter', sans-serif;
     color: #E0E0E0; /* Light grey text for dark theme */
-    background-color: #1a1a2e; /* Dark background */
+    background-color: #121212; /* Deep dark background */
     margin: 0;
     padding: 0;
+    -webkit-font-smoothing: antialiased; /* Smoother fonts */
+    -moz-osx-font-smoothing: grayscale; /* Smoother fonts */
 }
 
-/* Streamlit specific overrides */
+/* Streamlit specific overrides for main app container */
 .stApp {
-    background-color: #1a1a2e;
+    background-color: #121212;
     color: #E0E0E0;
+    padding: 0 !important; /* Remove default padding */
 }
 
-/* Main header styling */
+/* Main content area padding */
+.main .block-container {
+    padding-top: 2rem;
+    padding-right: 3rem;
+    padding-left: 3rem;
+    padding-bottom: 2rem;
+}
+
+/* Header Section Styling */
 .main-header {
-    background-color: #1a1a2e;
-    padding: 30px 0;
+    background-color: #1A1A1A; /* Slightly lighter than body for depth */
+    padding: 40px 0;
     text-align: center;
-    border-bottom: 2px solid #2e2e4a;
+    border-bottom: 1px solid #282828;
     margin-bottom: 40px;
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
+    border-radius: 0 0 15px 15px; /* Rounded bottom corners */
 }
 
 .main-header h1 {
-    font-size: 3.5em;
-    color: #00bcd4; /* Accent color */
+    font-size: 3.8em;
+    color: #00C2CB; /* Vibrant Teal Accent */
     margin: 0;
-    font-weight: 700;
-    letter-spacing: 1px;
-    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+    font-weight: 800; /* Extra bold */
+    letter-spacing: 1.5px;
+    text-shadow: 3px 3px 6px rgba(0, 0, 0, 0.6);
 }
 
 .main-header p {
-    font-size: 1.2em;
-    color: #b0bec5; /* Lighter grey for subtitle */
-    margin-top: 10px;
+    font-size: 1.3em;
+    color: #B0BEC5; /* Muted light grey for subtitle */
+    margin-top: 15px;
+    font-weight: 400;
 }
 
-/* Section titles */
+/* General Heading Styles */
 h1, h2, h3, h4, h5, h6 {
     color: #E0E0E0;
-    font-weight: 600;
+    font-weight: 700;
+    margin-top: 1.5em;
+    margin-bottom: 0.8em;
 }
 
 .analysis-header {
-    color: #00bcd4;
+    color: #00C2CB;
     text-align: center;
-    margin-top: 40px;
-    margin-bottom: 30px;
-    font-size: 2.5em;
-    border-bottom: 1px solid #2e2e4a;
-    padding-bottom: 15px;
+    margin-top: 50px;
+    margin-bottom: 40px;
+    font-size: 3em;
+    border-bottom: 1px solid #282828;
+    padding-bottom: 20px;
+    text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.4);
 }
 
 .section-title {
-    color: #00bcd4;
-    font-size: 2em;
-    margin-top: 40px;
-    margin-bottom: 20px;
-    border-bottom: 1px solid #3d3d5c;
-    padding-bottom: 10px;
+    color: #00C2CB;
+    font-size: 2.2em;
+    margin-top: 45px;
+    margin-bottom: 25px;
+    border-bottom: 1px solid #282828;
+    padding-bottom: 12px;
+    font-weight: 700;
 }
 
 .section-subtitle {
-    color: #b0bec5;
-    font-size: 1.5em;
-    margin-top: 30px;
-    margin-bottom: 15px;
+    color: #B0BEC5;
+    font-size: 1.6em;
+    margin-top: 35px;
+    margin-bottom: 20px;
+    font-weight: 600;
 }
 
 /* Input fields and buttons */
-.stTextInput > div > div > input {
-    background-color: #2e2e4a;
-    border: 1px solid #3d3d5c;
+.stTextInput > div > div > input,
+.stSelectbox > div > div {
+    background-color: #1A1A1A;
+    border: 1px solid #282828;
     color: #E0E0E0;
-    border-radius: 8px;
-    padding: 10px 15px;
+    border-radius: 10px;
+    padding: 12px 18px;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
+    transition: all 0.3s ease;
+}
+
+.stTextInput > div > div > input:focus,
+.stSelectbox > div > div:focus-within {
+    border-color: #00C2CB;
+    box-shadow: 0 0 0 2px rgba(0, 194, 203, 0.3);
+    outline: none;
 }
 
 .stButton > button {
-    background-color: #00bcd4;
+    background-color: #00C2CB;
     color: white;
     border: none;
-    padding: 12px 25px;
-    border-radius: 8px;
-    font-weight: 600;
-    transition: background-color 0.3s ease;
+    padding: 14px 30px;
+    border-radius: 10px;
+    font-weight: 700;
+    transition: all 0.3s ease;
     cursor: pointer;
+    box-shadow: 0 4px 8px rgba(0, 194, 203, 0.2);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
 .stButton > button:hover {
-    background-color: #0097a7;
+    background-color: #0097A7;
+    box-shadow: 0 6px 12px rgba(0, 194, 203, 0.3);
+    transform: translateY(-2px);
 }
 
 .stButton > button.primary {
     background-color: #4CAF50; /* Green for primary action */
+    box-shadow: 0 4px 8px rgba(76, 175, 80, 0.2);
 }
 
 .stButton > button.primary:hover {
-    background-color: #45a049;
+    background-color: #45A049;
+    box-shadow: 0 6px 12px rgba(76, 175, 80, 0.3);
+}
+
+/* Sidebar Styling */
+.sidebar .sidebar-content {
+    background-color: #1A1A1A;
+    padding: 20px;
+    border-right: 1px solid #282828;
+    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.2);
+}
+
+.sidebar .stRadio > label {
+    color: #E0E0E0;
+    font-weight: 500;
+    margin-bottom: 10px;
+}
+
+.sidebar .stRadio > label:hover {
+    color: #00C2CB;
 }
 
 /* Tabs */
 .stTabs [data-baseweb="tab-list"] {
-    gap: 10px; /* Space between tabs */
-    margin-bottom: 20px;
+    gap: 15px; /* More space between tabs */
+    margin-bottom: 30px;
+    border-bottom: none; /* Remove default border */
 }
 
 .stTabs [data-baseweb="tab"] {
-    background-color: #2e2e4a;
-    color: #b0bec5;
-    border-radius: 8px 8px 0 0;
-    padding: 10px 20px;
+    background-color: #1A1A1A;
+    color: #B0BEC5;
+    border-radius: 10px 10px 0 0;
+    padding: 15px 25px;
     font-weight: 600;
-    transition: background-color 0.3s ease, color 0.3s ease;
+    transition: all 0.3s ease;
+    border: 1px solid #282828;
+    border-bottom: none;
+    box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.1);
 }
 
 .stTabs [data-baseweb="tab"]:hover {
-    background-color: #3d3d5c;
+    background-color: #282828;
     color: #E0E0E0;
+    transform: translateY(-3px);
 }
 
 .stTabs [aria-selected="true"] {
-    background-color: #00bcd4;
+    background-color: #00C2CB;
     color: white;
-    border-bottom: 3px solid #00bcd4;
+    border: 1px solid #00C2CB;
+    border-bottom: none; /* Remove default border */
+    box-shadow: 0 -4px 8px rgba(0, 194, 203, 0.4);
+    transform: translateY(-2px); /* Slight lift */
 }
 
 .stTabs [aria-selected="true"]:hover {
-    background-color: #0097a7;
+    background-color: #0097A7;
     color: white;
 }
 
 /* Metrics Cards */
 .metric-card {
-    background-color: #2e2e4a;
-    border-radius: 12px;
-    padding: 20px;
-    margin-bottom: 20px;
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    background-color: #1A1A1A;
+    border-radius: 15px;
+    padding: 25px;
+    margin-bottom: 25px;
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
     text-align: center;
-    border: 1px solid #3d3d5c;
+    border: 1px solid #282828;
+    transition: transform 0.2s ease-in-out;
+}
+
+.metric-card:hover {
+    transform: translateY(-5px);
 }
 
 .metric-card .card-icon {
-    font-size: 3em;
-    margin-bottom: 10px;
-    color: #00bcd4;
+    font-size: 3.5em;
+    margin-bottom: 15px;
+    color: #00C2CB;
 }
 
 .metric-card .card-title {
-    font-size: 1.1em;
-    color: #b0bec5;
-    margin-bottom: 5px;
+    font-size: 1.2em;
+    color: #B0BEC5;
+    margin-bottom: 8px;
 }
 
 .metric-card .card-value {
-    font-size: 2em;
+    font-size: 2.5em;
     color: #E0E0E0;
-    font-weight: 700;
+    font-weight: 800;
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
 }
 
 /* News Cards */
 .news-card {
-    background-color: #2e2e4a;
-    border-radius: 12px;
-    padding: 20px;
-    margin-bottom: 20px;
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-    border: 1px solid #3d3d5c;
+    background-color: #1A1A1A;
+    border-radius: 15px;
+    padding: 25px;
+    margin-bottom: 25px;
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
+    border: 1px solid #282828;
+    transition: transform 0.2s ease-in-out;
+}
+
+.news-card:hover {
+    transform: translateY(-5px);
 }
 
 .news-card h3 {
     margin-top: 0;
-    margin-bottom: 15px;
+    margin-bottom: 18px;
+    color: #E0E0E0;
+    font-size: 1.6em;
 }
 
 .news-card .news-link {
-    color: #00bcd4;
+    color: #00C2CB;
     text-decoration: none;
-    font-weight: 600;
+    font-weight: 700;
+    transition: color 0.2s ease;
 }
 
 .news-card .news-link:hover {
     text-decoration: underline;
+    color: #0097A7;
 }
 
 .news-card span {
-    font-size: 0.9em;
-    color: #b0bec5;
+    font-size: 0.95em;
+    color: #B0BEC5;
+    display: block; /* Ensure it takes full width */
+    margin-top: 10px;
 }
 
 /* General markdown styles */
 p, li {
     color: #C0C0C0;
-    line-height: 1.6;
+    line-height: 1.7;
+    font-size: 1.05em;
 }
 
 code {
-    background-color: #3d3d5c;
-    padding: 2px 6px;
-    border-radius: 4px;
-    color: #ffcc00; /* Yellow for code */
+    background-color: #282828;
+    padding: 3px 8px;
+    border-radius: 6px;
+    color: #FFD700; /* Gold for code */
+    font-family: 'Fira Code', 'Cascadia Code', monospace; /* Monospace font for code */
 }
 
 a {
-    color: #00bcd4;
+    color: #00C2CB;
     text-decoration: none;
+    transition: color 0.2s ease;
 }
 
 a:hover {
     text-decoration: underline;
+    color: #0097A7;
 }
 
 /* Adjust Streamlit specific elements for consistency */
 div.stAlert {
-    border-radius: 8px;
+    border-radius: 10px;
+    background-color: #282828;
+    color: #E0E0E0;
+    border: 1px solid #3d3d5c;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
 }
 
+div.stAlert.st-emotion-cache-1f196yq.e1f1d6z00 { /* Specific warning/error class */
+    background-color: #282828; /* Darker background for alerts */
+    border-left: 5px solid #FFC107; /* Muted orange for warning */
+    color: #E0E0E0;
+}
+div.stAlert.st-emotion-cache-1f196yq.e1f1d6z00[data-testid="stError"] {
+    border-left: 5px solid #E57373; /* Red for error */
+}
+div.stAlert.st-emotion-cache-1f196yq.e1f1d6z00[data-testid="stSuccess"] {
+    border-left: 5px solid #81C784; /* Green for success */
+}
+div.stAlert.st-emotion-cache-1f196yq.e1f1d6z00[data-testid="stInfo"] {
+    border-left: 5px solid #64B5F6; /* Blue for info */
+}
+
+
 div.stSpinner > div {
-    color: #00bcd4;
+    color: #00C2CB;
+    font-size: 1.2em;
 }
 
 div.stProgress > div > div > div > div {
-    background-color: #00bcd4;
+    background-color: #00C2CB;
+    border-radius: 5px;
 }
+
+/* Price Change Color (Green/Red) */
+span[style*='color:green'] {
+    color: #81C784 !important; /* Lighter green */
+    font-weight: 600;
+}
+
+span[style*='color:red'] {
+    color: #E57373 !important; /* Lighter red */
+    font-weight: 600;
+}
+
+/* Streamlit Slider */
+.stSlider > div > div > div > div { /* Track */
+    background-color: #282828;
+}
+.stSlider > div > div > div > div > div { /* Thumb */
+    background-color: #00C2CB;
+    border: 2px solid #00C2CB;
+}
+.stSlider > div > div > div > div > div:hover {
+    box-shadow: 0 0 0 4px rgba(0, 194, 203, 0.4);
+}
+.stSlider > div > div > div > div > div > div { /* Value label */
+    color: #E0E0E0;
+    background-color: #1A1A1A;
+    border: 1px solid #282828;
+    border-radius: 5px;
+}
+
+/* Plotly chart container background */
+.stPlotlyChart {
+    background-color: #1A1A1A; /* Match card background */
+    border-radius: 15px;
+    padding: 15px;
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
+    border: 1px solid #282828;
+}
+
+/* Table (dataframe) styling */
+.stDataFrame {
+    border-radius: 15px;
+    overflow: hidden; /* Ensures rounded corners apply to content */
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
+    border: 1px solid #282828;
+}
+
+/* Specific styling for the Streamlit radio buttons */
+div[data-testid="stSidebar"] .stRadio > label {
+    background-color: #1A1A1A; /* Darker background for sidebar items */
+    border-radius: 10px;
+    margin-bottom: 8px; /* Space between radio options */
+    padding: 12px 15px;
+    transition: background-color 0.2s ease, transform 0.2s ease;
+    border: 1px solid #282828;
+}
+
+div[data-testid="stSidebar"] .stRadio > label:hover {
+    background-color: #282828;
+    transform: translateX(5px); /* Slight hover effect */
+}
+
+div[data-testid="stSidebar"] .stRadio > label[data-baseweb="radio"] > div:first-child {
+    border-color: #00C2CB; /* Radio button border color */
+}
+
+div[data-testid="stSidebar"] .stRadio > label[data-baseweb="radio"] > div:first-child > div {
+    background-color: #00C2CB; /* Radio button fill color when selected */
+}
+
+div[data-testid="stSidebar"] .stRadio > label[data-baseweb="radio"][aria-checked="true"] {
+    background-color: #00C2CB; /* Selected radio option background */
+    color: white;
+    border-color: #00C2CB;
+    box-shadow: 0 2px 5px rgba(0, 194, 203, 0.3);
+}
+
+div[data-testid="stSidebar"] .stRadio > label[data-baseweb="radio"][aria-checked="true"] span {
+    color: white !important; /* Ensure text color is white when selected */
+}
+
+/* Ensure font consistency for all text */
+* {
+    font-family: 'Inter', sans-serif;
+}
+
