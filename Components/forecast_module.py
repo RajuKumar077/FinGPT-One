@@ -4,10 +4,10 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from sklearn.linear_model import LinearRegression
-from sklearn.preprocessing import StandardScaler, MinMaxScaler  # Added MinMaxScaler for LSTM
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.pipeline import Pipeline
 from sklearn.metrics import mean_squared_error, mean_absolute_error
-from sklearn.model_selection import TimeSeriesSplit  # For time series specific cross-validation
+from sklearn.model_selection import TimeSeriesSplit
 import ta  # For technical analysis indicators
 
 # Suppress Prophet's verbose logging
@@ -15,25 +15,30 @@ import logging
 
 logging.getLogger('prophet').setLevel(logging.WARNING)
 
-# Conditional import for Prophet to avoid errors if not installed during initial checks
+# Conditional import for Prophet
 try:
     from prophet import Prophet
 
     PROPHET_AVAILABLE = True
 except ImportError:
     PROPHET_AVAILABLE = False
-    # st.warning("Prophet library not found. Please install it (`pip install prophet`) to use Prophet forecasting.")
+    st.warning("Prophet library not found. Please install it (`pip install prophet`) to use Prophet forecasting.")
 
-# Imports for LSTM and SHAP
+# Conditional imports for LSTM and SHAP
+LSTM_AVAILABLE = False  # Initialize to False
 try:
     import torch
-    import torch.nn as nn
     from torch.utils.data import DataLoader, TensorDataset
 
+    # Import nn conditionally inside the block where it's used
     LSTM_AVAILABLE = True
-except ImportError:
+except ImportError as e:
+    st.warning(
+        f"PyTorch library not found or failed to load: {e}. Please install it (`pip install torch`) to use LSTM forecasting.")
     LSTM_AVAILABLE = False
-    # st.warning("PyTorch library not found. Please install it (`pip install torch`) to use LSTM forecasting.")
+except Exception as e:  # Catch any other unexpected errors during import
+    st.warning(f"An unexpected error occurred during PyTorch import: {e}. Please check your installation.")
+    LSTM_AVAILABLE = False
 
 try:
     import shap
@@ -42,7 +47,7 @@ try:
     SHAP_AVAILABLE = True
 except ImportError:
     SHAP_AVAILABLE = False
-    # st.warning("SHAP library not found. Please install it (`pip install shap matplotlib`) for model explainability.")
+    st.warning("SHAP library not found. Please install it (`pip install shap matplotlib`) for model explainability.")
 
 
 # --- Helper functions for feature engineering ---
@@ -114,72 +119,77 @@ def prepare_forecast_data(hist_data, ticker):
 
 
 # --- Deep Learning Model (LSTM) ---
-class LSTMModel(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, output_size):
-        super(LSTMModel, self).__init__()
-        self.hidden_size = hidden_size
-        self.num_layers = num_layers
-        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
-        self.fc = nn.Linear(hidden_size, output_size)
-
-    def forward(self, x):
-        h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
-        c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
-        out, _ = self.lstm(x, (h0, c0))
-        out = self.fc(out[:, -1, :])
-        return out
+# Only define LSTMModel and related functions if PyTorch is available
+if LSTM_AVAILABLE:
+    import torch.nn as nn  # Import nn here, only if LSTM_AVAILABLE is True
 
 
-@st.cache_resource(show_spinner=False)
-def prepare_lstm_data_for_forecast(df, features, sequence_length):
-    """Prepares data for LSTM model with sequence input for regression."""
-    if df.empty or len(df) < sequence_length:
-        return np.array([]), np.array([]), None, "Not enough data for LSTM sequences."
+    class LSTMModel(nn.Module):
+        def __init__(self, input_size, hidden_size, num_layers, output_size):
+            super(LSTMModel, self).__init__()
+            self.hidden_size = hidden_size
+            self.num_layers = num_layers
+            self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
+            self.fc = nn.Linear(hidden_size, output_size)
 
-    data = df[features].values
-    scaler = MinMaxScaler(feature_range=(0, 1))
-    scaled_data = scaler.fit_transform(data)
-
-    X, y = [], []
-    for i in range(len(scaled_data) - sequence_length):
-        X.append(scaled_data[i:i + sequence_length])
-        y.append(df['Close'].iloc[i + sequence_length])
-
-    return np.array(X), np.array(y), scaler, None
+        def forward(self, x):
+            h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
+            c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
+            out, _ = self.lstm(x, (h0, c0))
+            out = self.fc(out[:, -1, :])
+            return out
 
 
-@st.cache_resource(show_spinner=False)
-def train_lstm_model_for_forecast(X_train, y_train, X_test, y_test, input_size, hidden_size=50, num_layers=2,
-                                  epochs=50, batch_size=32):
-    """Trains an LSTM model for regression forecasting."""
-    if X_train.shape[0] == 0 or X_test.shape[0] == 0:
-        return None, np.array([]), np.array([]), "Insufficient data for LSTM training/testing split."
+    @st.cache_resource(show_spinner=False)
+    def prepare_lstm_data_for_forecast(df, features, sequence_length):
+        """Prepares data for LSTM model with sequence input for regression."""
+        if df.empty or len(df) < sequence_length:
+            return np.array([]), np.array([]), None, "Not enough data for LSTM sequences."
 
-    X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
-    y_train_tensor = torch.tensor(y_train, dtype=torch.float32).unsqueeze(1)
-    X_test_tensor = torch.tensor(X_test, dtype=torch.float32)
-    y_test_tensor = torch.tensor(y_test, dtype=torch.float32).unsqueeze(1)
+        data = df[features].values
+        scaler = MinMaxScaler(feature_range=(0, 1))
+        scaled_data = scaler.fit_transform(data)
 
-    train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+        X, y = [], []
+        for i in range(len(scaled_data) - sequence_length):
+            X.append(scaled_data[i:i + sequence_length])
+            y.append(df['Close'].iloc[i + sequence_length])
 
-    model = LSTMModel(input_size, hidden_size, num_layers, 1)
-    criterion = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+        return np.array(X), np.array(y), scaler, None
 
-    for epoch in range(epochs):
-        for inputs, targets in train_loader:
-            optimizer.zero_grad()
-            outputs = model(inputs)
-            loss = criterion(outputs, targets)
-            loss.backward()
-            optimizer.step()
 
-    model.eval()
-    with torch.no_grad():
-        test_preds = model(X_test_tensor).numpy().flatten()
+    @st.cache_resource(show_spinner=False)
+    def train_lstm_model_for_forecast(X_train, y_train, X_test, y_test, input_size, hidden_size=50, num_layers=2,
+                                      epochs=50, batch_size=32):
+        """Trains an LSTM model for regression forecasting."""
+        if X_train.shape[0] == 0 or X_test.shape[0] == 0:
+            return None, np.array([]), np.array([]), "Insufficient data for LSTM training/testing split."
 
-    return model, test_preds, y_test.flatten(), None
+        X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
+        y_train_tensor = torch.tensor(y_train, dtype=torch.float32).unsqueeze(1)
+        X_test_tensor = torch.tensor(X_test, dtype=torch.float32)
+        y_test_tensor = torch.tensor(y_test, dtype=torch.float32).unsqueeze(1)
+
+        train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+
+        model = LSTMModel(input_size, hidden_size, num_layers, 1)
+        criterion = nn.MSELoss()
+        optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+
+        for epoch in range(epochs):
+            for inputs, targets in train_loader:
+                optimizer.zero_grad()
+                outputs = model(inputs)
+                loss = criterion(outputs, targets)
+                loss.backward()
+                optimizer.step()
+
+        model.eval()
+        with torch.no_grad():
+            test_preds = model(X_test_tensor).numpy().flatten()
+
+        return model, test_preds, y_test.flatten(), None
 
 
 # --- Traditional ML Models (Linear Regression) ---
