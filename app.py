@@ -6,12 +6,12 @@ import requests
 import yfinance as yf
 import time
 from retrying import retry
-from pages.yahoo_autocomplete import fetch_ticker_suggestions
-from pages.stock_summary import fetch_stock_data, display_stock_summary
-from pages.probabilistic_stock_model import display_probabilistic_models
-from pages.news_sentiment import display_news_sentiment
-from pages.forecast_module import display_forecasting
-from pages.financials import display_financials
+from Components.yahoo_autocomplete import fetch_ticker_suggestions
+from Components.stock_summary import fetch_stock_data , display_stock_summary
+from Components.probabilistic_stock_model import display_probabilistic_models
+from Components.news_sentiment import display_news_sentiment
+from Components.forecast_module import display_forecasting
+from Components.financials import display_financials
 import logging
 
 # Setup logging
@@ -220,7 +220,7 @@ def main():
         st.session_state.current_ticker = ticker
         st.session_state.historical_data = None
 
-    # Load historical data for relevant pages
+    # Load historical data for relevant Components
     hist_data = None
     if page in ["Stock Summary", "Probabilistic Models", "Forecasting"]:
         if (st.session_state.get('historical_data') is None or
