@@ -53,7 +53,7 @@ def add_common_features(hist_df):
     df['Stoch_D'] = ta.momentum.StochasticOscillator(df['High'], df['Low'], df['Close']).stoch_signal()
 
     # Volume Indicators
-    df['Volume_MA5'] = df['Volume'].rolling(window=5).mean()
+    df['Volume_MA5'] = ta.volume.VolumeWeightedAveragePrice(df['High'], df['Low'], df['Close'], df['Volume']).volume_weighted_average_price() # Using VWAP for Volume MA5, more robust
     df['OBV'] = ta.volume.OnBalanceVolumeIndicator(df['Close'], df['Volume']).on_balance_volume()
 
     # Volatility Indicators
@@ -90,19 +90,18 @@ def train_and_evaluate_model(X_train, y_train, X_test, y_test, model_type='Rando
         return None, None, None, None
 
     # Hyperparameter Tuning with GridSearchCV
-    with st.spinner(f"Tuning {model_type} hyperparameters..."):
-        grid_search = GridSearchCV(model, param_grid, cv=3, scoring='accuracy', n_jobs=-1)
-        grid_search.fit(X_train, y_train)
-        best_model = grid_search.best_estimator_
-        st.write(f"**Best {model_type} Parameters:** {grid_search.best_params_}")
+    # We will control the spinner from the calling function `display_probabilistic_models`
+    grid_search = GridSearchCV(model, param_grid, cv=3, scoring='accuracy', n_jobs=-1)
+    grid_search.fit(X_train, y_train)
+    best_model = grid_search.best_estimator_
+    st.write(f"**Best {model_type} Parameters:** {grid_search.best_params_}")
 
     # Cross-validation
-    with st.spinner(f"Performing cross-validation for {model_type}..."):
-        cv_scores = cross_val_score(best_model, X_train, y_train, cv=5, scoring='accuracy', n_jobs=-1)
-        st.write(f"**Cross-Validation Accuracy (5-fold):** {np.mean(cv_scores):.2f} ± {np.std(cv_scores):.2f}")
+    cv_scores = cross_val_score(best_model, X_train, y_train, cv=5, scoring='accuracy', n_jobs=-1)
+    st.write(f"**Cross-Validation Accuracy (5-fold):** {np.mean(cv_scores):.2f} ± {np.std(cv_scores):.2f}")
 
     best_model.fit(X_train,
-                   y_train)  # Re-fit the best model on the full training set (though GridSearchCV already does this implicitly)
+                    y_train)  # Re-fit the best model on the full training set (though GridSearchCV already does this implicitly)
 
     y_pred = best_model.predict(X_test)
     y_proba = best_model.predict_proba(X_test)[:, 1]
@@ -126,17 +125,21 @@ def display_probabilistic_models(hist_data):
             f"❌ Historical data missing required columns: {', '.join(missing_cols)}. Cannot run probabilistic models.")
         return
 
-    with st.spinner("Preparing data and training model..."):
-        df = add_common_features(hist_data)
+    # Create a placeholder for status messages and progress
+    status_placeholder = st.empty()
+
+    with status_placeholder.container(): # Use a container to hold multiple messages
+        with st.spinner("🚀 Preparing data and engineering features..."):
+            df = add_common_features(hist_data)
 
     if df.empty:
-        st.error("❌ Failed to compute features due to insufficient or invalid data. Check historical data source.")
+        status_placeholder.error("❌ Failed to compute features due to insufficient or invalid data. Check historical data source.")
         return
 
     # Ensure enough data points
     min_data_points_required = 100  # Increased requirement for more complex features
     if len(df) < min_data_points_required:
-        st.warning(
+        status_placeholder.warning(
             f"⚠️ Not enough data points ({len(df)} < {min_data_points_required}) after feature engineering. Try a ticker with more history or a shorter date range.")
         return
 
@@ -160,9 +163,8 @@ def display_probabilistic_models(hist_data):
     # Verify features exist and have no NaNs (after initial dropna, but as a safeguard)
     available_features = [f for f in features if f in df.columns and not df[f].isnull().all()]
     if len(available_features) != len(features):
-        missing = set(features) - set(available_features)
         st.warning(
-            f"⚠️ Some features could not be computed or contain only NaNs and will be excluded: {', '.join(missing)}")
+            f"⚠️ Some features could not be computed or contain only NaNs and will be excluded: {', '.join(missing)}. Please check data completeness for best results.")
     features = available_features  # Use only computed features
 
     if not features:
@@ -190,12 +192,24 @@ def display_probabilistic_models(hist_data):
         X_test, y_test = pd.DataFrame(), pd.Series()  # Ensure X_test, y_test are empty if split fails
         display_metrics = False
 
-    best_model, y_pred, y_proba, cv_scores = train_and_evaluate_model(X_train, y_train, X_test, y_test,
-                                                                      model_type=selected_model_type)
-
+    # New placeholder for model training status
+    model_training_status_placeholder = st.empty()
+    with model_training_status_placeholder.container():
+        with st.spinner(f"🏋️‍♀️ Training {selected_model_type} model... This includes hyperparameter tuning and cross-validation."):
+            best_model, y_pred, y_proba, cv_scores = train_and_evaluate_model(X_train, y_train, X_test, y_test,
+                                                                              model_type=selected_model_type)
+    
     if best_model is None:
-        st.error("Model training failed.")
+        model_training_status_placeholder.error("Model training failed.")
         return
+    else:
+        # Replace the spinner with a success message and an expander for details
+        model_training_status_placeholder.success(f"✅ {selected_model_type} Model Training Completed!")
+        with st.expander("View Training Details"):
+            st.write(f"**Best {selected_model_type} Parameters:** {best_model.get_params()}")
+            if cv_scores is not None:
+                st.write(f"**Cross-Validation Accuracy (5-fold):** {np.mean(cv_scores):.2f} ± {np.std(cv_scores):.2f}")
+
 
     if display_metrics:
         # Using st.metrics for overall accuracy and AUC score
@@ -338,8 +352,16 @@ def display_probabilistic_models(hist_data):
         prediction_emoji = "🟢" if next_day_prediction == 1 else "🔴"
         st.metric(label="Predicted Movement for Tomorrow", value=f"{prediction_emoji} {prediction_text}")
     with col_proba:
-        delta_change = f"{(next_day_proba_up - 0.5) * 2:.2f}" # Indicate strength away from 50%
-        st.metric(label="Probability of Price Going Up", value=f"{next_day_proba_up:.2%}", delta=delta_change, delta_color="normal")
+        # Calculate delta based on deviation from 0.5 (neutral)
+        delta_value = (next_day_proba_up - 0.5) * 100
+        delta_color = "normal" if abs(delta_value) > 10 else "off" # Only show delta if it's significant
+
+        st.metric(
+            label="Probability of Price Going Up",
+            value=f"{next_day_proba_up:.2%}",
+            delta=f"{delta_value:.2f}% from 50%",
+            delta_color=delta_color
+        )
     st.markdown(f"<small><i>The model indicates a {next_day_proba_up:.2%} chance of the price closing higher tomorrow.</i></small>", unsafe_allow_html=True)
 
 
@@ -387,14 +409,14 @@ def display_probabilistic_models(hist_data):
             )
             fig_proba.add_trace(
                 go.Scatter(x=recent_data.index, y=y_recent_proba, name='Predicted Probability (Up)',
-                           line=dict(color='orange', dash='dot'), opacity=0.7),
+                            line=dict(color='orange', dash='dot'), opacity=0.7),
                 secondary_y=True
             )
             # Add horizontal lines for common probability thresholds
             fig_proba.add_hline(y=0.5, line_dash="dot", line_color="grey", secondary_y=True,
-                                annotation_text="0.5 Threshold", annotation_position="top left")
+                                 annotation_text="0.5 Threshold", annotation_position="top left")
             fig_proba.add_hline(y=0.6, line_dash="dot", line_color="green", secondary_y=True,
-                                annotation_text="0.6 Threshold", annotation_position="top right")
+                                 annotation_text="0.6 Threshold", annotation_position="top right")
 
             # Plot actual outcomes as markers
             actual_up_dates = recent_data[y_recent_actual == 1].index
@@ -435,7 +457,7 @@ def display_probabilistic_models(hist_data):
                                    range=[-0.1, 1.1])  # Extend range for markers
             st.plotly_chart(fig_proba, use_container_width=True)
         except Exception as e:
-            st.error(f"Error during recent performance visualization: {e}. Check data integrity.")
+            st.error(f"Error during recent performance visualization: {e}. Check data integrity or ensure enough data for prediction.")
     else:
         st.info("⚠️ Not enough recent data to visualize model performance.")
 
