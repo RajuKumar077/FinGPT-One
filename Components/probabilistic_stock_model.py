@@ -94,12 +94,12 @@ def train_and_evaluate_model(X_train, y_train, X_test, y_test, model_type='Rando
         grid_search = GridSearchCV(model, param_grid, cv=3, scoring='accuracy', n_jobs=-1)
         grid_search.fit(X_train, y_train)
         best_model = grid_search.best_estimator_
-        st.write(f"**Best {model_type} Parameters:** `{grid_search.best_params_}`")
+        st.write(f"**Best {model_type} Parameters:** {grid_search.best_params_}")
 
     # Cross-validation
     with st.spinner(f"Performing cross-validation for {model_type}..."):
         cv_scores = cross_val_score(best_model, X_train, y_train, cv=5, scoring='accuracy', n_jobs=-1)
-        st.write(f"**Cross-Validation Accuracy (5-fold):** `{np.mean(cv_scores):.2f} ± {np.std(cv_scores):.2f}`")
+        st.write(f"**Cross-Validation Accuracy (5-fold):** {np.mean(cv_scores):.2f} ± {np.std(cv_scores):.2f}")
 
     best_model.fit(X_train,
                    y_train)  # Re-fit the best model on the full training set (though GridSearchCV already does this implicitly)
@@ -198,17 +198,81 @@ def display_probabilistic_models(hist_data):
         return
 
     if display_metrics:
-        st.write(f"**Model Accuracy (on test set):** `{accuracy_score(y_test, y_pred):.2f}`")
+        st.write(f"**Model Accuracy (on test set):** {accuracy_score(y_test, y_pred):.2f}")
         try:
             auc_score = roc_auc_score(y_test, y_proba)
-            st.write(f"**ROC AUC Score (on test set):** `{auc_score:.2f}`")
+            st.write(f"**ROC AUC Score (on test set):** {auc_score:.2f}")
         except ValueError:
             st.warning("Could not calculate ROC AUC score (might be due to single class in test set).")
 
         st.markdown("<h6>Classification Report:</h6>", unsafe_allow_html=True)
         try:
             report_dict = classification_report(y_test, y_pred, output_dict=True, zero_division=0)
-            st.json(report_dict)
+            
+            # --- Dynamic Classification Report Display ---
+            report_df = pd.DataFrame(report_dict).transpose()
+            # Format numbers to 2 decimal places, except for 'support'
+            for col in ['precision', 'recall', 'f1-score']:
+                report_df[col] = report_df[col].apply(lambda x: f"{x:.2f}")
+            
+            st.dataframe(report_df.style.set_properties(**{'text-align': 'center'}).set_table_styles([dict(selector='th', props=[('text-align', 'center')])]))
+
+            # --- Dynamic Conclusion ---
+            st.markdown("<h6>Model Performance Summary:</h6>", unsafe_allow_html=True)
+            
+            if '0' in report_dict and '1' in report_dict:
+                precision_up = report_dict['1']['precision']
+                recall_up = report_dict['1']['recall']
+                f1_up = report_dict['1']['f1-score']
+                support_up = report_dict['1']['support']
+                
+                precision_down = report_dict['0']['precision']
+                recall_down = report_dict['0']['recall']
+                f1_down = report_dict['0']['f1-score']
+                support_down = report_dict['0']['support']
+
+                total_samples = support_up + support_down
+                
+                st.markdown(f"""
+                <p>The model's overall accuracy on the test set is <b>{accuracy_score(y_test, y_pred):.2f}</b>, meaning it correctly predicts the direction of price movement in about {accuracy_score(y_test, y_pred)*100:.0f}% of cases.
+                The ROC AUC score of <b>{auc_score:.2f}</b> indicates its ability to distinguish between upward and downward movements, with a score closer to 1 being ideal.</p>
+                """, unsafe_allow_html=True)
+                
+                st.markdown("<h6>Detailed Class Performance:</h6>", unsafe_allow_html=True)
+
+                st.markdown(f"""
+                <p>For predicting an <b>UPWARD</b> movement (class 1), the model achieved:
+                <ul>
+                    <li><b>Precision:</b> {precision_up:.2f} (When the model predicts 'Up', it's correct {precision_up*100:.0f}% of the time).</li>
+                    <li><b>Recall:</b> {recall_up:.2f} (It correctly identified {recall_up*100:.0f}% of all actual 'Up' movements).</li>
+                    <li><b>F1-Score:</b> {f1_up:.2f} (A balanced measure of precision and recall for 'Up' predictions).</li>
+                </ul>
+                There were <b>{int(support_up)}</b> actual 'Up' movements in the test set.
+                </p>
+                """, unsafe_allow_html=True)
+
+                st.markdown(f"""
+                <p>For predicting a <b>DOWNWARD</b> movement (class 0), the model achieved:
+                <ul>
+                    <li><b>Precision:</b> {precision_down:.2f} (When the model predicts 'Down', it's correct {precision_down*100:.0f}% of the time).</li>
+                    <li><b>Recall:</b> {recall_down:.2f} (It correctly identified {recall_down*100:.0f}% of all actual 'Down' movements).</li>
+                    <li><b>F1-Score:</b> {f1_down:.2f} (A balanced measure of precision and recall for 'Down' predictions).</li>
+                </ul>
+                There were <b>{int(support_down)}</b> actual 'Down' movements in the test set.
+                </p>
+                """, unsafe_allow_html=True)
+
+                # Add a concluding remark based on performance
+                if f1_up > 0.6 and f1_down > 0.6:
+                    st.success("🎉 **Conclusion:** The model shows good predictive capabilities for both upward and downward price movements, indicating a robust performance.")
+                elif f1_up > 0.5 or f1_down > 0.5:
+                    st.info("💡 **Conclusion:** The model performs reasonably well, but there might be room for improvement, especially in balancing predictions for both upward and downward trends.")
+                else:
+                    st.warning("Needs Improvement: The model's performance for predicting price movements is relatively low. Further tuning or different features might be required.")
+            else:
+                st.warning("Classification report classes (0 or 1) not found. Cannot generate dynamic conclusion.")
+
+
         except ValueError as e:
             st.warning(f"⚠️ Failed to generate classification report: {e}. Predictions may be biased toward one class.")
 
@@ -245,8 +309,8 @@ def display_probabilistic_models(hist_data):
     next_day_proba_up = best_model.predict_proba(last_data_point_features)[0, 1]
 
     prediction_text = "UP 🟢" if next_day_prediction == 1 else "DOWN 🔴"
-    st.markdown(f"**Predicted Movement for Next Trading Day:** `{prediction_text}`")
-    st.markdown(f"**Probability of Price Going Up:** `{next_day_proba_up:.2%}`")
+    st.markdown(f"**Predicted Movement for Next Trading Day:** {prediction_text}")
+    st.markdown(f"**Probability of Price Going Up:** {next_day_proba_up:.2%}")
 
     # Feature Importance Visualization
     st.markdown("<h5>Feature Importances:</h5>", unsafe_allow_html=True)
