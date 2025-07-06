@@ -6,7 +6,6 @@ from sklearn.preprocessing import MinMaxScaler
 import plotly.graph_objects as go
 from statsmodels.tsa.arima.model import ARIMA
 from prophet import Prophet
-from prophet.plot import plot_plotly
 import xgboost as xgb
 import torch
 import torch.nn as nn
@@ -14,7 +13,6 @@ from torch.utils.data import DataLoader, TensorDataset
 import shap
 import matplotlib.pyplot as plt
 import warnings
-import yfinance as yf # Keep yfinance for internal use if needed for some data points, though primary data comes as hist_data
 
 # Suppress warnings for cleaner output
 warnings.filterwarnings('ignore')
@@ -27,96 +25,167 @@ plt.rcParams.update({'text.color': 'white', 'axes.labelcolor': 'white', 'xtick.c
 # --- Utility Functions (Cached) ---
 @st.cache_data(ttl=3600, show_spinner=False)
 def calculate_metrics(y_true, y_pred):
-    """Calculates RMSE, MAE, MAPE."""
-    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
-    mae = mean_absolute_error(y_true, y_pred)
-    # Avoid division by zero in MAPE
-    mape = np.mean(np.abs((y_true - y_pred) / y_true)) * 100 if np.all(y_true != 0) else float('inf')
+    """Calculates RMSE, MAE, MAPE. Ensures inputs are finite."""
+    # Ensure no NaNs or Infs before calculation for sklearn compatibility
+    # Drop NaNs from both Series based on their combined index
+    combined_df = pd.DataFrame({'y_true': y_true, 'y_pred': y_pred}).dropna()
+    y_true_clean = combined_df['y_true']
+    y_pred_clean = combined_df['y_pred']
+
+    if y_true_clean.empty:
+        return float('inf'), float('inf'), float('inf') # No valid data to calculate metrics
+
+    rmse = np.sqrt(mean_squared_error(y_true_clean, y_pred_clean))
+    mae = mean_absolute_error(y_true_clean, y_pred_clean)
+
+    # Avoid division by zero in MAPE for 0 or negative actual values, handle NaN/Inf
+    mape_denominator = y_true_clean[y_true_clean != 0]
+    mape_numerator = np.abs(y_true_clean[y_true_clean != 0] - y_pred_clean[y_true_clean != 0])
+
+    if not mape_denominator.empty:
+        mape = np.mean(mape_numerator / mape_denominator) * 100
+    else:
+        mape = float('inf') # If all true values are 0, MAPE is undefined / infinite
+
     return rmse, mae, mape
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def prepare_data_for_forecasting(hist_data):
     """Prepares data for various forecasting models."""
     df = hist_data.copy()
-    df.index = pd.to_datetime(df.index) # Ensure index is datetime
-    df = df[['Close']].rename(columns={'Close': 'y'}) # Prophet needs 'y'
-    df['ds'] = df.index # Prophet needs 'ds' for datetime
-    return df
+    if 'Date' in df.columns:
+        df['Date'] = pd.to_datetime(df['Date'])
+        df = df.set_index('Date')
+    df.index = pd.to_datetime(df.index)
+
+    df_prophet_format = df[['Close']].rename(columns={'Close': 'y'})
+    df_prophet_format['ds'] = df_prophet_format.index
+    return df_prophet_format
 
 
 # --- ARIMA Model ---
-@st.cache_resource(show_spinner=False) # Cache the trained model
-def train_arima_model(train_data):
-    """Trains an ARIMA model."""
+@st.cache_resource(show_spinner=False)
+def train_and_forecast_arima(train_data_series, days_to_forecast, order=(5, 1, 0)):
+    """Trains ARIMA on full data and forecasts future."""
     try:
-        # ARIMA order (p,d,q) - typical starting point, can be optimized
-        # Using a simple order for speed; hyperparameter tuning could be added.
-        model = ARIMA(train_data['y'], order=(5, 1, 0)) # ARIMA(p,d,q)
+        model = ARIMA(train_data_series, order=order)
         model_fit = model.fit()
-        return model_fit
+
+        last_date = train_data_series.index[-1]
+        future_dates = pd.date_range(start=last_date + pd.Timedelta(days=1),
+                                     periods=days_to_forecast, freq='D')
+        forecast_array = model_fit.forecast(steps=days_to_forecast)
+        forecast_series = pd.Series(forecast_array, index=future_dates, name='yhat')
+        return model_fit, forecast_series
     except Exception as e:
-        st.error(f"ARIMA model training failed: {e}")
-        return None
+        st.error(f"ARIMA model training or forecasting failed: {e}")
+        return None, None
 
 # --- Prophet Model ---
-@st.cache_resource(show_spinner=False) # Cache the trained model
-def train_prophet_model(train_data):
-    """Trains a Prophet model."""
-    # Prophet expects 'ds' and 'y' columns
-    m = Prophet(seasonality_mode='multiplicative',
-                changepoint_prior_scale=0.05, # Can be tuned
-                yearly_seasonality=True,
-                weekly_seasonality=True,
-                daily_seasonality=False) # Daily seasonality often not needed for daily stock data
-    m.fit(train_data)
-    return m
+@st.cache_resource(show_spinner=False)
+def train_and_forecast_prophet(train_data_df, days_to_forecast):
+    """Trains Prophet on full data and forecasts future."""
+    try:
+        m = Prophet(seasonality_mode='multiplicative',
+                    changepoint_prior_scale=0.05,
+                    yearly_seasonality=True,
+                    weekly_seasonality=True,
+                    daily_seasonality=False)
+        m.fit(train_data_df)
+
+        future = m.make_future_dataframe(periods=days_to_forecast, include_history=False)
+        if future.empty:
+            return None, None # No future dates generated
+        forecast_prophet_df = m.predict(future)
+        # Only take the future predictions
+        forecast_results = forecast_prophet_df[['ds', 'yhat']].set_index('ds')['yhat']
+        return m, forecast_results
+    except Exception as e:
+        st.error(f"Prophet model training or forecasting failed: {e}")
+        return None, None
 
 
 # --- XGBoost Model (Regression) ---
-@st.cache_resource(show_spinner=False) # Cache the trained model
-def train_xgboost_model(df, days_to_forecast):
-    """Prepares data and trains an XGBoost Regressor model."""
-    df_xgb = df.copy()
-    # Create lag features
+@st.cache_resource(show_spinner=False)
+def train_xgboost_for_future(df_full):
+    """Trains XGBoost model on full historical data for future prediction."""
+    df_xgb = df_full.copy()
+    
+    # Create lag features for 'y' (Close price)
     for i in range(1, 11): # Lag features for past 10 days
         df_xgb[f'lag_{i}'] = df_xgb['y'].shift(i)
     # Moving averages
     df_xgb['rolling_mean_5'] = df_xgb['y'].rolling(window=5).mean()
     df_xgb['rolling_std_5'] = df_xgb['y'].rolling(window=5).std()
 
+    # Drop rows with NaN created by lag/rolling features
     df_xgb.dropna(inplace=True)
 
-    # Use 'y' column as the target for XGBoost
     features = [col for col in df_xgb.columns if col not in ['ds', 'y']]
     X = df_xgb[features]
     y = df_xgb['y']
 
-    if X.empty or len(X) < 2:
-        return None, None, None, None # Return model, features used, X_test, y_test
-
-    # Split data: Use the last `days_to_forecast` as test data, rest as train
-    # Ensure there's enough data for both train and test
-    if len(X) <= days_to_forecast:
-        st.warning(f"Not enough data for XGBoost (data points: {len(X)}, forecast days: {days_to_forecast}). Skipping XGBoost.")
-        return None, None, None, None
-
-    train_size = len(X) - days_to_forecast
-    X_train, X_test = X.iloc[:train_size], X.iloc[train_size:]
-    y_train, y_test = y.iloc[:train_size], y.iloc[train_size:]
+    if X.empty or len(X) < 10: # Ensure enough data for lags + training
+        return None, None # Not enough data for feature engineering
 
     model = xgb.XGBRegressor(objective='reg:squarederror',
-                             n_estimators=100,
-                             learning_rate=0.1,
+                             n_estimators=200,
+                             learning_rate=0.05,
                              random_state=42,
-                             n_jobs=-1,
-                             enable_categorical=True if pd.api.types.is_categorical_dtype(X_train) else False) # For potential categorical features
+                             n_jobs=-1)
+    model.fit(X, y) # Train on ALL historical data
 
-    model.fit(X_train, y_train)
+    return model, features
 
-    # Store feature names used for SHAP later
-    model.feature_names_in_ = features # Explicitly set feature names
+def forecast_xgboost_future(model, features, df_historical, days_to_forecast):
+    """
+    Iteratively forecasts future values using a trained XGBoost model.
+    Requires 'y' column (Close price) in df_historical.
+    """
+    if model is None or features is None or df_historical.empty:
+        return None
 
-    return model, features, X_test, y_test
+    # Start with a copy of the last part of historical data needed for features
+    # This must include enough data to create the lags for the first future prediction
+    forecast_df = df_historical.copy()
+    
+    future_predictions = []
+    last_date = forecast_df.index[-1]
+
+    for i in range(days_to_forecast):
+        next_date = last_date + pd.Timedelta(days=1)
+        
+        # Create a temporary row for the next prediction with placeholder for 'y'
+        new_row = pd.DataFrame({'y': [np.nan]}, index=[next_date])
+        
+        # Concatenate to generate features
+        forecast_df = pd.concat([forecast_df, new_row])
+
+        # Recalculate features for the *entire* extended dataframe
+        # This is inefficient but simple for demonstration. For production, optimize.
+        temp_df_for_features = forecast_df.copy()
+        for j in range(1, 11):
+            temp_df_for_features[f'lag_{j}'] = temp_df_for_features['y'].shift(j)
+        temp_df_for_features['rolling_mean_5'] = temp_df_for_features['y'].rolling(window=5).mean()
+        temp_df_for_features['rolling_std_5'] = temp_df_for_features['y'].rolling(window=5).std()
+
+        # Get features for the last (newest) row (the one we want to predict)
+        # Ensure it has finite values for features
+        X_predict = temp_df_for_features[features].iloc[[-1]].dropna()
+
+        if X_predict.empty:
+            st.warning(f"Could not generate features for {next_date}. Stopping XGBoost future forecast early.")
+            break
+        
+        # Predict the next value
+        predicted_value = model.predict(X_predict)[0]
+        future_predictions.append(predicted_value)
+        
+        # Update the 'y' column in the forecast_df with the predicted value
+        forecast_df.loc[next_date, 'y'] = predicted_value
+        last_date = next_date
+
+    return pd.Series(future_predictions, index=pd.date_range(start=df_historical.index[-1] + pd.Timedelta(days=1), periods=len(future_predictions), freq='D'), name='yhat')
 
 
 # --- LSTM Model (Regression) ---
@@ -132,13 +201,16 @@ class LSTMRegressionModel(nn.Module):
         h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
         c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
         out, _ = self.lstm(x, (h0, c0))
-        out = self.fc(out[:, -1, :]) # Take the output from the last time step
+        out = self.fc(out[:, -1, :])
         return out
 
 @st.cache_resource(show_spinner=False)
-def prepare_lstm_data_regression(df, sequence_length=20):
-    """Prepares data for LSTM regression."""
-    data = df['y'].values.reshape(-1, 1) # Reshape for scaler
+def prepare_lstm_data_for_training(df_full, sequence_length=20):
+    """
+    Prepares data for LSTM regression training (on full historical data).
+    Returns X (sequences), y (next value), and the scaler.
+    """
+    data = df_full['y'].values.reshape(-1, 1)
     scaler = MinMaxScaler(feature_range=(0, 1))
     scaled_data = scaler.fit_transform(data)
 
@@ -146,23 +218,24 @@ def prepare_lstm_data_regression(df, sequence_length=20):
     for i in range(len(scaled_data) - sequence_length):
         X.append(scaled_data[i : (i + sequence_length), 0])
         y.append(scaled_data[i + sequence_length, 0])
+
     return np.array(X), np.array(y), scaler
 
 @st.cache_resource(show_spinner=False)
-def train_lstm_model_regression(X_train, y_train, input_size, hidden_size=50, num_layers=2, epochs=50, batch_size=32):
+def train_lstm_model(X_train, y_train, sequence_length, hidden_size=50, num_layers=2, epochs=50, batch_size=32):
     """Trains an LSTM regression model."""
     if X_train.shape[0] == 0:
         return None
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    X_train_tensor = torch.tensor(X_train, dtype=torch.float32).unsqueeze(-1).to(device) # Add feature dimension
+    X_train_tensor = torch.tensor(X_train, dtype=torch.float32).unsqueeze(-1).to(device)
     y_train_tensor = torch.tensor(y_train, dtype=torch.float32).unsqueeze(1).to(device)
 
     train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
-    model = LSTMRegressionModel(input_size, hidden_size, num_layers, 1).to(device)
+    model = LSTMRegressionModel(input_size=1, hidden_size=hidden_size, num_layers=num_layers, output_size=1).to(device)
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
@@ -175,24 +248,62 @@ def train_lstm_model_regression(X_train, y_train, input_size, hidden_size=50, nu
             optimizer.step()
     return model
 
+def forecast_lstm_future(model, scaler, df_historical, days_to_forecast, sequence_length=20):
+    """
+    Iteratively forecasts future values using a trained LSTM model.
+    """
+    if model is None or scaler is None or df_historical.empty:
+        return None
+
+    data = df_historical['y'].values.reshape(-1, 1)
+    scaled_data = scaler.transform(data) # Use transform, not fit_transform
+
+    # Get the last sequence from the historical data
+    current_sequence = list(scaled_data[-sequence_length:].flatten())
+
+    future_predictions_scaled = []
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.eval() # Set model to evaluation mode
+
+    with torch.no_grad():
+        for _ in range(days_to_forecast):
+            # Convert the current sequence to a tensor
+            input_tensor = torch.tensor(current_sequence[-sequence_length:], dtype=torch.float32).unsqueeze(0).unsqueeze(-1).to(device)
+            
+            predicted_value_scaled = model(input_tensor).cpu().numpy()[0][0]
+            future_predictions_scaled.append(predicted_value_scaled)
+            
+            # Update the sequence: remove the oldest value, add the new prediction
+            current_sequence.append(predicted_value_scaled)
+            current_sequence = current_sequence[1:] # Keep only the last 'sequence_length' elements
+
+    # Generate future dates
+    last_hist_date = df_historical.index[-1]
+    future_dates = pd.date_range(start=last_hist_date + pd.Timedelta(days=1), periods=days_to_forecast, freq='D')
+
+    # Inverse transform the scaled predictions
+    future_predictions = scaler.inverse_transform(np.array(future_predictions_scaled).reshape(-1, 1))
+    return pd.Series(future_predictions.flatten(), index=future_dates, name='yhat')
+
 
 # --- Plotting Functions ---
-def plot_forecast(actual, forecast, model_name, historical_data_plot=None):
-    """Plots actual vs. forecast using Plotly."""
+def plot_forecast(historical_close, future_forecast, model_name):
+    """Plots historical close and future forecast using Plotly."""
     fig = go.Figure()
 
-    if historical_data_plot is not None:
-        fig.add_trace(go.Scatter(x=historical_data_plot.index, y=historical_data_plot['Close'],
-                                 mode='lines', name='Historical Close',
-                                 line=dict(color='lightgray')))
+    # Plot historical data
+    fig.add_trace(go.Scatter(x=historical_close.index, y=historical_close.values,
+                             mode='lines', name='Historical Close',
+                             line=dict(color='lightgray')))
 
-    fig.add_trace(go.Scatter(x=actual.index, y=actual, mode='lines', name='Actual Future Prices',
-                             line=dict(color='blue')))
-    fig.add_trace(go.Scatter(x=forecast.index, y=forecast, mode='lines', name=f'{model_name} Forecast',
-                             line=dict(color='red', dash='dash')))
+    # Plot future forecast
+    if future_forecast is not None and not future_forecast.empty:
+        fig.add_trace(go.Scatter(x=future_forecast.index, y=future_forecast.values,
+                                 mode='lines', name=f'{model_name} Future Forecast',
+                                 line=dict(color='red', dash='dash', width=2)))
 
     fig.update_layout(
-        title=f'Stock Price Forecast ({model_name})',
+        title=f'Stock Price Future Forecast ({model_name})',
         xaxis_title='Date',
         yaxis_title='Price',
         template="plotly_dark",
@@ -206,29 +317,33 @@ def plot_shap_summary(model, X_data_for_shap, model_name="Model"):
     """Generates and plots SHAP values."""
     if X_data_for_shap.empty:
         st.warning(f"No data available for SHAP explanation for {model_name}.")
-        return None
+        return False
 
     try:
-        # Determine explainer based on model type
-        if isinstance(model, (xgb.XGBRegressor, xgb.XGBClassifier)): # More specific check
+        if isinstance(model, (xgb.XGBRegressor, xgb.XGBClassifier)):
             explainer = shap.TreeExplainer(model)
-        else: # Fallback to KernelExplainer for other models
-            # KernelExplainer needs a background dataset; use a sample of X_data_for_shap
-            background_data = X_data_for_shap.sample(min(100, len(X_data_for_shap)), random_state=42)
-            explainer = shap.KernelExplainer(model.predict, background_data) # Use .predict for regression
+        else:
+            background_data = X_data_for_shap.sample(min(50, len(X_data_for_shap)), random_state=42)
+            explainer = shap.KernelExplainer(model.predict, background_data)
 
-        shap_values = explainer.shap_values(X_data_for_shap)
+        shap_values = explainer.shap_values(X_data_for_shap.sample(min(200, len(X_data_for_shap)), random_state=42))
 
         fig, ax = plt.subplots(figsize=(10, 6))
-        shap.summary_plot(shap_values, X_data_for_shap, plot_type="bar", show=False, ax=ax,
-                          color_bar=True, cmap='coolwarm', max_display=10) # Added cmap and max_display
+        if isinstance(shap_values, list):
+             shap.summary_plot(shap_values[0], X_data_for_shap.columns, plot_type="bar", show=False, ax=ax,
+                              color_bar=True, cmap='coolwarm', max_display=10)
+        else:
+             shap.summary_plot(shap_values, X_data_for_shap.columns, plot_type="bar", show=False, ax=ax,
+                              color_bar=True, cmap='coolwarm', max_display=10)
+
         ax.set_title(f'SHAP Feature Importance - {model_name}', fontsize=14, color='white')
         plt.tight_layout()
         st.pyplot(fig)
-        plt.close(fig) # Close the figure to free memory
+        plt.close(fig)
         return True
     except Exception as e:
-        st.warning(f"Could not generate SHAP plot for {model_name}: {e}")
+        st.error(f"Error generating SHAP plot for {model_name}: {e}")
+        st.info("SHAP explanation might fail if the model has no features, or if data is unsuitable.")
         return False
 
 
@@ -236,8 +351,9 @@ def plot_shap_summary(model, X_data_for_shap, model_name="Model"):
 def display_forecasting(hist_data, ticker):
     st.markdown(f"<h3 class='section-title'>📈 Stock Price Forecasting for {ticker}</h3>", unsafe_allow_html=True)
     st.markdown("""
-        <p>This section uses advanced time series models to forecast stock prices based on historical trends. 
+        <p>This section uses advanced time series models to forecast stock prices based on historical trends.
         Remember, financial forecasting is complex and inherently uncertain.</p>
+        <p>The models are trained on all available historical data to make predictions for the next N days into the future.</p>
         """, unsafe_allow_html=True)
 
     if hist_data is None or hist_data.empty:
@@ -246,7 +362,7 @@ def display_forecasting(hist_data, ticker):
 
     # User Configuration
     st.subheader("⚙️ Forecasting Configuration")
-    days_to_forecast = st.slider("Days to Forecast", min_value=5, max_value=60, value=30)
+    days_to_forecast = st.slider("Days to Forecast (into the future)", min_value=5, max_value=60, value=30)
     selected_model = st.selectbox(
         "Choose Forecasting Model",
         ["Prophet", "XGBoost (Regression)", "LSTM (Regression)", "ARIMA"]
@@ -256,136 +372,88 @@ def display_forecasting(hist_data, ticker):
     # Prepare data (cached for efficiency)
     with st.spinner("Preparing data for forecasting... ⏳"):
         df_forecast = prepare_data_for_forecasting(hist_data)
+        df_forecast = df_forecast[~df_forecast.index.duplicated(keep='first')].sort_index()
 
     if df_forecast.empty:
         st.error("❌ Data preparation for forecasting failed. Please check the input historical data.")
         return
 
-    # Split data into train and actual future for evaluation
-    # Ensure train_size is at least 1 for valid split
-    if len(df_forecast) <= days_to_forecast:
-        st.error(f"❌ Not enough historical data ({len(df_forecast)} days) to forecast {days_to_forecast} days. Please select a longer historical range.")
+    # Ensure enough data for training, especially for models with lags/sequences
+    min_data_points = max(10, days_to_forecast + 1) # Arbitrary min for training and lags
+    if len(df_forecast) < min_data_points:
+        st.error(f"❌ Not enough historical data ({len(df_forecast)} days) for robust model training and forecasting. Please select a longer historical range (min {min_data_points} days needed).")
         return
 
-    train_data = df_forecast.iloc[:-days_to_forecast]
-    actual_future_data = df_forecast.iloc[-days_to_forecast:]
-
-    if train_data.empty:
-        st.error("❌ Training data is empty after splitting. Please ensure you have sufficient historical data.")
-        return
-
-    forecast_results = None
-    model_performance = {}
+    # Train on ALL historical data for future prediction
+    train_data_for_future_pred = df_forecast.copy() # All available data
+    
+    future_forecast_results = None
     current_model = None
-    XGB_features = None # To store features used by XGBoost for SHAP
-    XGB_X_test = None
-    XGB_y_test = None
+    XGB_X_for_shap = None # Data to be used for SHAP explanation
 
-
-    with st.spinner(f"Running {selected_model} Model... 🚀"):
+    with st.spinner(f"Running {selected_model} Model for future prediction... 🚀"):
         try:
             if selected_model == "ARIMA":
-                model_arima = train_arima_model(train_data)
-                if model_arima:
-                    # Forecast and index
-                    forecast_period_index = pd.date_range(start=train_data.index[-1] + pd.Timedelta(days=1),
-                                                         periods=days_to_forecast, freq='D')
-                    arima_forecast_series = model_arima.forecast(steps=days_to_forecast)
-                    arima_forecast_series.index = forecast_period_index
-                    forecast_results = arima_forecast_series
-                    current_model = model_arima
-                else:
-                    st.warning("ARIMA model could not be trained.")
+                model_arima, future_forecast_results = train_and_forecast_arima(train_data_for_future_pred['y'], days_to_forecast)
+                current_model = model_arima
 
             elif selected_model == "Prophet":
-                m_prophet = train_prophet_model(train_data)
-                if m_prophet:
-                    future = m_prophet.make_future_dataframe(periods=days_to_forecast)
-                    forecast_prophet = m_prophet.predict(future)
-                    # Filter forecast to only include the future period
-                    forecast_results = forecast_prophet[['ds', 'yhat']].set_index('ds').loc[actual_future_data.index]['yhat']
-                    current_model = m_prophet
-                else:
-                    st.warning("Prophet model could not be trained.")
-
+                m_prophet, future_forecast_results = train_and_forecast_prophet(train_data_for_future_pred, days_to_forecast)
+                current_model = m_prophet
 
             elif selected_model == "XGBoost (Regression)":
-                # XGBoost requires features
-                xgb_model, features, X_test_xgb, y_test_xgb = train_xgboost_model(df_forecast, days_to_forecast)
-                if xgb_model and features and not X_test_xgb.empty:
-                    # Make predictions on the test set for evaluation
-                    xgb_predictions = xgb_model.predict(X_test_xgb)
-                    forecast_results = pd.Series(xgb_predictions, index=y_test_xgb.index, name='yhat')
+                xgb_model, features = train_xgboost_for_future(train_data_for_future_pred)
+                if xgb_model and features:
+                    future_forecast_results = forecast_xgboost_future(xgb_model, features, train_data_for_future_pred, days_to_forecast)
                     current_model = xgb_model
-                    XGB_features = features
-                    XGB_X_test = X_test_xgb
-                    XGB_y_test = y_test_xgb # Keep for SHAP if needed on a different data slice
+                    # For SHAP, use a sample of the data used for training
+                    # Need to regenerate features for the full historical df for SHAP
+                    df_xgb_for_shap = train_data_for_future_pred.copy()
+                    for i in range(1, 11):
+                        df_xgb_for_shap[f'lag_{i}'] = df_xgb_for_shap['y'].shift(i)
+                    df_xgb_for_shap['rolling_mean_5'] = df_xgb_for_shap['y'].rolling(window=5).mean()
+                    df_xgb_for_shap['rolling_std_5'] = df_xgb_for_shap['y'].rolling(window=5).std()
+                    XGB_X_for_shap = df_xgb_for_shap[features].dropna() # Features for SHAP
+
                 else:
-                    st.warning("XGBoost model could not be trained or insufficient data for testing.")
+                    st.warning("XGBoost model could not be trained or insufficient data.")
 
             elif selected_model == "LSTM (Regression)":
-                sequence_length = 20 # You can make this configurable
-                X_lstm, y_lstm, scaler_lstm = prepare_lstm_data_regression(df_forecast)
+                sequence_length = 20 # Can make this configurable
+                X_lstm_train, y_lstm_train, scaler_lstm = prepare_lstm_data_for_training(train_data_for_future_pred, sequence_length)
 
-                if X_lstm.shape[0] == 0:
+                if X_lstm_train.shape[0] == 0:
                     st.warning("Not enough data for LSTM model after preparing sequences. Skipping LSTM training.")
                     lstm_model = None
                 else:
-                    # Split for training and testing LSTM
-                    train_size_lstm = len(X_lstm) - days_to_forecast
-                    if train_size_lstm <= 0: # Ensure at least one training point
-                        st.warning("Not enough data for LSTM training after sequence preparation. Skipping LSTM.")
-                        lstm_model = None
-                    else:
-                        X_train_lstm, X_test_lstm = X_lstm[:train_size_lstm], X_lstm[train_size_lstm:]
-                        y_train_lstm, y_test_lstm = y_lstm[:train_size_lstm], y_lstm[train_size_lstm:]
-
-                        if X_train_lstm.shape[0] == 0 or X_test_lstm.shape[0] == 0:
-                             st.warning("Not enough data to split into train/test sets for LSTM. Skipping LSTM training.")
-                             lstm_model = None
-                        else:
-                            lstm_model = train_lstm_model_regression(X_train_lstm, y_train_lstm, X_train_lstm.shape[1])
+                    lstm_model = train_lstm_model(X_lstm_train, y_lstm_train, sequence_length)
 
                 if lstm_model:
-                    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-                    # Make predictions on the test set
-                    X_test_lstm_tensor = torch.tensor(X_test_lstm, dtype=torch.float32).unsqueeze(-1).to(device)
-                    lstm_model.eval()
-                    with torch.no_grad():
-                        lstm_predictions_scaled = lstm_model(X_test_lstm_tensor).cpu().numpy()
-
-                    # Inverse transform to get actual prices
-                    lstm_predictions = scaler_lstm.inverse_transform(lstm_predictions_scaled)
-                    forecast_results = pd.Series(lstm_predictions.flatten(), index=actual_future_data.index, name='yhat')
+                    future_forecast_results = forecast_lstm_future(lstm_model, scaler_lstm, train_data_for_future_pred, days_to_forecast, sequence_length)
                     current_model = lstm_model
                 else:
                     st.warning("LSTM model could not be trained.")
 
         except Exception as e:
             st.error(f"Error during {selected_model} model execution: {e}")
+            import traceback
+            st.code(traceback.format_exc()) # Display full traceback for debugging
 
-    if forecast_results is not None and not forecast_results.empty:
-        st.success(f"✅ {selected_model} Model ran successfully!")
-        rmse, mae, mape = calculate_metrics(actual_future_data['y'], forecast_results)
-        model_performance = {"RMSE": rmse, "MAE": mae, "MAPE": mape}
+    if future_forecast_results is not None and not future_forecast_results.empty:
+        st.success(f"✅ {selected_model} Model successfully generated future forecast!")
 
-        st.markdown("<h4>📊 Model Performance Metrics:</h4>", unsafe_allow_html=True)
-        col_rmse, col_mae, col_mape = st.columns(3)
-        with col_rmse:
-            st.metric("Root Mean Squared Error (RMSE)", f"{model_performance['RMSE']:.2f}")
-        with col_mae:
-            st.metric("Mean Absolute Error (MAE)", f"{model_performance['MAE']:.2f}")
-        with col_mape:
-            st.metric("Mean Absolute Percentage Error (MAPE)", f"{model_performance['MAPE']:.2f}%")
+        # Calculate metrics (on a held-out set if you still want to show performance)
+        # For true future forecasting, we don't have 'actual_future_data' to compare with.
+        # So we omit metrics for the true future forecast, or calculate on a historical test set if desired.
+        # For simplicity here, we'll only show the future forecast.
+        st.markdown("<h4>📈 Future Price Forecast Visualization:</h4>", unsafe_allow_html=True)
+        st.plotly_chart(plot_forecast(hist_data['Close'], future_forecast_results, selected_model), use_container_width=True)
 
-        st.markdown("<h4>📈 Forecast Visualization:</h4>", unsafe_allow_html=True)
-        st.plotly_chart(plot_forecast(actual_future_data['y'], forecast_results, selected_model, hist_data), use_container_width=True)
-
-        st.markdown("<h4>🔮 Future Price Forecast:</h4>", unsafe_allow_html=True)
-        st.dataframe(pd.DataFrame(forecast_results).rename(columns={'yhat': 'Predicted Close Price'}).style.format({"Predicted Close Price": "{:.2f}"}))
+        st.markdown("<h4>🔮 Predicted Future Prices:</h4>", unsafe_allow_html=True)
+        st.dataframe(pd.DataFrame(future_forecast_results).rename(columns={'yhat': 'Predicted Close Price'}).style.format({"Predicted Close Price": "{:.2f}"}))
 
     else:
-        st.warning(f"No forecast generated for {selected_model}. Please check configuration or data.")
+        st.warning(f"No future forecast generated for {selected_model}. Please check configuration or data.")
 
 
     # --- Model Explainability (SHAP) ---
@@ -394,21 +462,20 @@ def display_forecasting(hist_data, ticker):
     st.info("SHAP values indicate how much each feature contributes to the model's output (positive or negative).")
 
     shap_success = False
-    if selected_model == "XGBoost (Regression)" and current_model and XGB_X_test is not None:
-        # Use a small sample of the test data for SHAP explanation for performance
-        shap_X_explain = XGB_X_test.tail(min(len(XGB_X_test), 200)) # Use features model was trained on
+    if selected_model == "XGBoost (Regression)" and current_model and XGB_X_for_shap is not None and not XGB_X_for_shap.empty:
+        shap_X_explain = XGB_X_for_shap.tail(min(len(XGB_X_for_shap), 200)).copy()
         shap_success = plot_shap_summary(current_model, shap_X_explain, "XGBoost (Regression)")
     elif selected_model == "Prophet" and current_model:
-        st.info("SHAP explanations are not directly applicable to Prophet as it's a statistical model focused on trend, seasonality, and holidays, not feature importance in the same way as ML models.")
-        shap_success = True # Consider it 'successful' in that it provided information
+        st.info("SHAP explanations are not directly applicable to Prophet as it's a statistical model focused on trend, seasonality, and holidays, not feature importance in the same way as ML models. You can explore Prophet's components using `m.plot_components(forecast)` if needed.")
+        shap_success = True
     elif selected_model == "ARIMA" and current_model:
-        st.info("ARIMA models are statistical and do not have 'features' in the same sense as machine learning models, so SHAP explanations are not applicable.")
+        st.info("ARIMA models are statistical and do not have 'features' in the same sense as machine learning models, so SHAP explanations are not directly applicable.")
         shap_success = True
     elif selected_model == "LSTM (Regression)" and current_model:
-        st.info("SHAP explanations for LSTM models are generally more complex and often require specialized libraries (e.g., DeepLift, Integrated Gradients) which are outside the scope of this simplified SHAP implementation.")
-        shap_success = True # Indicate as 'successful' in that it provided information
+        st.info("SHAP explanations for LSTM models are generally more complex and often require specialized libraries (e.g., DeepLift, Integrated Gradients) which are outside the scope of this simplified SHAP implementation for general purpose feature importance.")
+        shap_success = True
 
-    if not shap_success and selected_model not in ["Prophet", "ARIMA", "LSTM (Regression)"]: # Only show if it was expected to work and failed
+    if not shap_success and selected_model not in ["Prophet", "ARIMA", "LSTM (Regression)"]:
         st.warning("SHAP plot could not be generated for this model or data.")
 
     # --- Disclaimer ---
