@@ -17,3 +17,4 @@ torch
 shap
 statsmodels>=0.12.0 
 xgboost>=1.6.0 
+yahooquery
