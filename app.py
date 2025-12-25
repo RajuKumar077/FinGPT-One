@@ -9,7 +9,7 @@ from retrying import retry
 import logging
 
 # Import Custom Components
-from Components.yahoo_autocomplete import fetch_ticker_suggestions
+from Components.fmp_autocomplete import fetch_ticker_suggestions
 from Components.stock_summary import fetch_stock_data, display_stock_summary
 from Components.probabilistic_stock_model import display_probabilistic_models
 from Components.news_sentiment import display_news_sentiment
