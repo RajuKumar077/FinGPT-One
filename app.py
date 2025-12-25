@@ -24,7 +24,7 @@ logging.basicConfig(
     ]
 )
 
-# Load API keys from .env file
+# Load API keys from .env file 
 load_dotenv()
 FMP_API_KEY = os.getenv("FMP_API_KEY", "5C9DnMCAzYam2ZPjNpOxKLFxUiGhrJDD")
 NEWS_API_KEY = os.getenv("NEWS_API_KEY", "874ba654bdcd4aa7b68f7367a907cc2f")
