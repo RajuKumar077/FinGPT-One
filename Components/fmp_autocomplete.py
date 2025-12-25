@@ -1,82 +1,132 @@
-import requests
 import streamlit as st
-import time
-import urllib.parse
+import yfinance as yf
+from typing import List
+
+# ---------------------------
+# 🔍 Ticker Search with yfinance
+# ---------------------------
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def fetch_fmp_suggestions(query, api_key, retries=3, initial_delay=0.5):
+def fetch_ticker_suggestions(query: str) -> List[str]:
     """
-    Fetches stock ticker suggestions from the Financial Modeling Prep (FMP) API.
-
+    Fetches stock ticker suggestions using yfinance (FREE, NO API KEY NEEDED).
+    
+    This is a lightweight replacement for FMP API that:
+    - Works globally (US, India NSE/BSE, Canada, etc.)
+    - Has no rate limits
+    - Requires no API key
+    - Uses cached data
+    
     Args:
-        query (str): The partial ticker symbol or company name to search for.
-        api_key (str): Your FMP API key.
-        retries (int): Number of retry attempts for API requests.
-        initial_delay (float): Initial delay for retries in seconds.
-
+        query (str): Partial ticker symbol or company name
+        
     Returns:
-        list: A list of formatted suggestions (e.g., "AAPL - Apple Inc. (NASDAQ)"),
-              or an empty list if no suggestions are found or an error occurs.
+        List[str]: List of formatted suggestions (e.g., "AAPL - Apple Inc.")
     """
+    
     if not query or not isinstance(query, str):
-        st.error("❌ Invalid search query. Please enter a valid ticker or company name.")
+        st.error("❌ Invalid search query. Please enter a valid ticker.")
+        return []
+    
+    query = query.strip().upper()
+    
+    if len(query) < 1:
+        return []
+    
+    # Try to fetch ticker info
+    try:
+        ticker = yf.Ticker(query)
+        info = ticker.info
+        
+        # Check if valid ticker
+        if info and 'longName' in info:
+            name = info.get('longName', 'N/A')
+            exchange = info.get('exchange', 'Unknown')
+            suggestions = [f"{query} - {name} ({exchange})"]
+            return suggestions
+        
+        # If direct lookup fails, try partial match search
+        suggestions = try_partial_match(query)
+        return suggestions if suggestions else []
+        
+    except Exception as e:
+        st.warning(f"⚠️ Ticker search error: {e}")
         return []
 
-    if not api_key or api_key == "YOUR_FMP_KEY":
-        st.error("❌ FMP API key is missing or invalid in `app.py`. Autocomplete disabled.")
-        return []
 
-    # Sanitize query to prevent URL encoding issues
-    query = urllib.parse.quote(query.strip())
+def try_partial_match(query: str) -> List[str]:
+    """
+    Fallback: Try to find matching tickers from common symbols.
+    Useful when exact ticker isn't found.
+    """
+    # Popular global tickers for quick search
+    COMMON_TICKERS = {
+        # US Tech Giants
+        'AAPL': 'Apple Inc.',
+        'MSFT': 'Microsoft Corp.',
+        'GOOGL': 'Alphabet Inc.',
+        'AMZN': 'Amazon.com Inc.',
+        'META': 'Meta Platforms Inc.',
+        'TSLA': 'Tesla Inc.',
+        'NVDA': 'NVIDIA Corp.',
+        'AMD': 'Advanced Micro Devices',
+        'NFLX': 'Netflix Inc.',
+        'PYPL': 'PayPal Holdings',
+        
+        # Indian Stocks (NSE)
+        'TCS': 'Tata Consultancy Services',
+        'INFY': 'Infosys Limited',
+        'WIPRO': 'Wipro Limited',
+        'HCLTECH': 'HCL Technologies',
+        'BAJAJFINSV': 'Bajaj Finserv',
+        'RELIANCE': 'Reliance Industries',
+        'SBIN': 'State Bank of India',
+        'ICICIBANK': 'ICICI Bank',
+        'AXISBANK': 'Axis Bank',
+        'MARUTI': 'Maruti Suzuki India',
+        
+        # Global Banks
+        'JPM': 'JPMorgan Chase',
+        'BAC': 'Bank of America',
+        'WFC': 'Wells Fargo',
+        'GS': 'Goldman Sachs',
+    }
+    
+    suggestions = []
+    for symbol, name in COMMON_TICKERS.items():
+        if query in symbol or query in name.upper():
+            suggestions.append(f"{symbol} - {name}")
+    
+    return suggestions[:20]  # Limit to 20 suggestions
 
-    # Use major exchanges to cover most stocks
-    url = f"https://financialmodelingprep.com/api/v3/search?query={query}&limit=20&exchange=NASDAQ,NYSE,AMEX,NSE,BSE,TSX&apikey={api_key}"
 
-    for attempt in range(retries + 1):
-        try:
-            if attempt > 0:
-                sleep_time = initial_delay * (2 ** (attempt - 1))
-                time.sleep(sleep_time)
-
-            response = requests.get(url, timeout=10)
-            response.raise_for_status()
-            data = response.json()
-
-            suggestions = []
-            if data:
-                for item in data:
-                    symbol = item.get('symbol')
-                    name = item.get('name')
-                    exchange = item.get('exchangeShortName')
-                    if symbol and name:
-                        display_name = f"{symbol} - {name}"
-                        if exchange:
-                            display_name += f" ({exchange})"
-                        suggestions.append(display_name)
-            return suggestions[:20]  # Ensure max 20 suggestions
-        except requests.exceptions.HTTPError as http_err:
-            if attempt == retries:
-                if http_err.response.status_code == 429:
-                    st.error("⚠️ FMP API rate limit reached (250 requests/day). Try again later.")
-                elif http_err.response.status_code in [401, 403]:
-                    st.error("❌ Invalid FMP API key. Verify `FMP_API_KEY` in `app.py`.")
-                else:
-                    st.error(f"⚠️ FMP Autocomplete HTTP error: {http_err} (Status: {http_err.response.status_code})")
-                return []
-        except requests.exceptions.ConnectionError:
-            if attempt == retries:
-                st.error("⚠️ FMP Autocomplete connection error. Check your internet connection.")
-                return []
-        except requests.exceptions.Timeout:
-            if attempt == retries:
-                st.error("⚠️ FMP Autocomplete request timed out. Try again later.")
-                return []
-        except requests.exceptions.JSONDecodeError:
-            if attempt == retries:
-                st.error("⚠️ FMP Autocomplete returned invalid data. Check API key or try again later.")
-                return []
-        except Exception as e:
-            if attempt == retries:
-                st.error(f"⚠️ FMP Autocomplete unexpected error: {e}")
-                return []
-    return []
+def display_autocomplete_widget(session_key: str = "selected_ticker"):
+    """
+    Streamlit widget for ticker autocomplete search.
+    Returns the selected ticker symbol.
+    """
+    st.subheader("🔍 Stock Search")
+    
+    search_query = st.text_input(
+        "Enter ticker symbol or company name:",
+        placeholder="e.g., AAPL, TCS, MSFT...",
+        key="ticker_search_input"
+    )
+    
+    if search_query:
+        suggestions = fetch_ticker_suggestions(search_query)
+        
+        if suggestions:
+            selected = st.selectbox(
+                "Available options:",
+                suggestions,
+                key=session_key
+            )
+            # Extract ticker from selected option (format: "AAPL - Apple Inc.")
+            ticker_symbol = selected.split(' - ')[0]
+            return ticker_symbol
+        else:
+            st.info("😕 No matches found. Try another symbol.")
+            return None
+    
+    return None
