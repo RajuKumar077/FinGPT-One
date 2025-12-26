@@ -22,7 +22,7 @@ def fetch_financials(ticker_symbol: str) -> dict:
             'cashflow': ticker.cashflow.T if ticker.cashflow is not None else pd.DataFrame()
         }
 
-        # Convert columns to readable format
+        # Convert numeric columns to formatted strings
         for key, df in financials.items():
             if not df.empty:
                 df.index = pd.to_datetime(df.index).date
@@ -35,28 +35,28 @@ def fetch_financials(ticker_symbol: str) -> dict:
         return {'income': pd.DataFrame(), 'balance': pd.DataFrame(), 'cashflow': pd.DataFrame()}
 
 
-def display_financial_statements(ticker_symbol: str):
-    """Display financial statements in Streamlit app."""
-    st.subheader(f"Financial Statements for {ticker_symbol}")
+def display_financials(ticker_symbol: str):
+    """Display financial statements in Streamlit app in your style."""
+    st.markdown(f"## 💰 Financial Statements for {ticker_symbol}")
 
     statements = fetch_financials(ticker_symbol)
 
     # Income Statement
-    st.markdown("### Income Statement")
+    st.markdown("### 📄 Income Statement")
     if not statements['income'].empty:
         st.dataframe(statements['income'].head(5), use_container_width=True)
     else:
         st.warning("⚠️ No Income Statement data available.")
 
     # Balance Sheet
-    st.markdown("### Balance Sheet")
+    st.markdown("### 🏦 Balance Sheet")
     if not statements['balance'].empty:
         st.dataframe(statements['balance'].head(5), use_container_width=True)
     else:
         st.warning("⚠️ No Balance Sheet data available.")
 
     # Cash Flow
-    st.markdown("### Cash Flow")
+    st.markdown("### 💵 Cash Flow")
     if not statements['cashflow'].empty:
         st.dataframe(statements['cashflow'].head(5), use_container_width=True)
     else:
