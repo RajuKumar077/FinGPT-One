@@ -105,7 +105,7 @@ def plot_advanced_metrics(df, statement_type):
 # ---------------------------
 # 4️⃣ Main Application UI
 # ---------------------------
-def display_financials_tab(ticker_symbol):
+def display_financials(ticker_symbol):
     """Main UI component to be called from app.py."""
     ticker_symbol = ticker_symbol.strip().upper()
     
@@ -144,4 +144,4 @@ def display_financials_tab(ticker_symbol):
                 st.markdown("**Detailed Report**")
                 st.dataframe(format_for_display(clean_df), use_container_width=True)
             else:
-                st.info("Data not available for this period.")
+                st.error("Data not available for this period.")
