@@ -1,80 +1,59 @@
+# Components/stock_summary.py
+import yfinance as yf
 import streamlit as st
-import pandas as pd
 import plotly.graph_objects as go
-from yahooquery import Ticker
 
-def display_stock_summary(ticker_symbol, hist_data):
-    """
-    Displays the company overview and price action.
-    Uses yahooquery for profile and yfinance (hist_data) for pricing.
-    """
-    # 1. Safety Check: Ensure data exists
-    if hist_data is None or hist_data.empty:
-        st.error(f"❌ No historical data found for {ticker_symbol}.")
-        return
-
-    st.title(f"🔍 {ticker_symbol} - Market Summary")
-
+def fetch_stock_info(ticker_symbol):
+    """Fetch company info and historical data using yfinance."""
     try:
-        # 2. Fetch Profile via yahooquery (Free)
-        t = Ticker(ticker_symbol)
-        all_profile = t.asset_profile
-        
-        # Handle cases where yahooquery returns an error string instead of a dict
-        if isinstance(all_profile, dict) and ticker_symbol in all_profile:
-            profile = all_profile[ticker_symbol]
-        else:
-            profile = {}
-
-        # 3. Key Metrics Header
-        latest_close = float(hist_data['Close'].iloc[-1])
-        prev_close = float(hist_data['Close'].iloc[-2])
-        change = latest_close - prev_close
-        pct_change = (change / prev_close) * 100
-
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Current Price", f"${latest_close:.2f}", f"{pct_change:.2f}%")
-        m2.metric("52W High", f"${hist_data['High'].max():.2f}")
-        m3.metric("52W Low", f"${hist_data['Low'].min():.2f}")
-        m4.metric("Avg Volume", f"{int(hist_data['Volume'].mean()):,}")
-
-        st.divider()
-
-        # 4. Company Info Section
-        col1, col2 = st.columns([2, 1])
-        
-        with col1:
-            st.markdown("### Business Summary")
-            description = profile.get('longBusinessSummary', "Description not available.")
-            st.write(description)
-
-        with col2:
-            st.markdown("### Details")
-            st.write(f"**Sector:** {profile.get('sector', 'N/A')}")
-            st.write(f"**Industry:** {profile.get('industry', 'N/A')}")
-            st.write(f"**Employees:** {profile.get('fullTimeEmployees', 'N/A'):,}" if isinstance(profile.get('fullTimeEmployees'), (int, float)) else "**Employees:** N/A")
-            
-            website = profile.get('website', '#')
-            st.markdown(f"**Website:** [Visit Site]({website})")
-
-        # 5. Visual Chart
-        st.markdown("### Price Action (Last 5 Years)")
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=hist_data.index, 
-            y=hist_data['Close'], 
-            fill='tozeroy',
-            line=dict(color='#00ACC1', width=2),
-            name="Close Price"
-        ))
-        fig.update_layout(
-            template="plotly_dark",
-            xaxis_title="Date",
-            yaxis_title="Price ($)",
-            margin=dict(l=0, r=0, t=0, b=0),
-            height=400
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
+        ticker = yf.Ticker(ticker_symbol)
+        info = ticker.info
+        hist = ticker.history(period="1y")  # 1-year daily data
+        return info, hist
     except Exception as e:
-        st.error(f"⚠️ An error occurred while rendering the summary: {e}")
+        st.error(f"❌ Error fetching data for {ticker_symbol}: {e}")
+        return {}, None
+
+def display_stock_summary(ticker_symbol):
+    st.subheader(f"Stock Summary for {ticker_symbol}")
+    
+    info, hist_data = fetch_stock_info(ticker_symbol)
+    
+    if info:
+        st.markdown("##### Company Profile")
+        cols = st.columns(2)
+        with cols[0]:
+            st.markdown(f"**Name**: {info.get('longName', 'N/A')}")
+            st.markdown(f"**Sector**: {info.get('sector', 'N/A')}")
+            st.markdown(f"**Industry**: {info.get('industry', 'N/A')}")
+        with cols[1]:
+            market_cap = info.get('marketCap', 'N/A')
+            if market_cap != 'N/A':
+                market_cap = f"${market_cap:,}"
+            st.markdown(f"**Market Cap**: {market_cap}")
+            st.markdown(f"**Exchange**: {info.get('exchange', 'N/A')}")
+            st.markdown(f"**Website**: [{info.get('website', '#')}]({info.get('website', '#')})")
+        st.markdown(f"**Description**: {info.get('longBusinessSummary', 'No description available.')}")
+    
+    if hist_data is not None and not hist_data.empty:
+        st.markdown("##### Price Data")
+        latest = hist_data.iloc[-1]
+        prev = hist_data.iloc[-2] if len(hist_data) > 1 else latest
+        price_change = latest['Close'] - prev['Close']
+        price_pct = (price_change / prev['Close'] * 100) if prev['Close'] != 0 else 0
+        
+        cols = st.columns(4)
+        cols[0].markdown(f"**Current Price**: ${latest['Close']:.2f}")
+        cols[1].markdown(f"**Price Change**: {'+' if price_change>=0 else ''}{price_change:.2f} ({price_pct:.2f}%)")
+        cols[2].markdown(f"**52-Week High**: ${hist_data['High'].max():.2f}")
+        cols[3].markdown(f"**52-Week Low**: ${hist_data['Low'].min():.2f}")
+        
+        # Plot price chart
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=hist_data.index, y=hist_data['Close'],
+                                 mode='lines', name='Close Price', line=dict(color='#00ACC1')))
+        fig.update_layout(title=f"Price History for {ticker_symbol}", xaxis_title="Date",
+                          yaxis_title="Price (USD)", template='plotly_dark', height=400)
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.warning("⚠️ No historical price data available.")
