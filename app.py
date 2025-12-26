@@ -12,8 +12,9 @@ from Components.fmp_autocomplete import fetch_ticker_suggestions
 from Components.stock_summary import display_stock_summary
 from Components.probabilistic_stock_model import display_probabilistic_models
 from Components.news_sentiment import display_news_sentiment
-from Components.forecast_module import display_forecasting
 from Components.financials import display_financials
+from Components.forecast_module import display_forecasting
+
 
 # Setup logging
 logging.basicConfig(
