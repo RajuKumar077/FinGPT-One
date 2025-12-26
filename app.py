@@ -1,125 +1,114 @@
-from dotenv import load_dotenv
 import os
-import streamlit as st
-import pandas as pd
 import requests
+import pandas as pd
 import yfinance as yf
-import time
-import logging
+import streamlit as st
+from dotenv import load_dotenv
 
-# Import Custom Components
-from Components.fmp_autocomplete import fetch_ticker_suggestions
-from Components.stock_summary import display_stock_summary
-from Components.probabilistic_stock_model import display_probabilistic_models
-from Components.forecast_module import display_forecasting
-from Components.financials import display_financials
-
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('app.log'),
-        logging.StreamHandler()
-    ]
-)
-
-# Load API keys
+# --- 1. HYBRID SECRETS LOADING ---
 load_dotenv()
-FMP_API_KEY = os.getenv("FMP_API_KEY", "5C9DnMCAzYam2ZPjNpOxKLFxUiGhrJDD")
-NEWS_API_KEY = os.getenv("NEWS_API_KEY", "874ba654bdcd4aa7b68f7367a907cc2f")
-ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY", "8UU32LX81NSED6CM")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyAK8BevJ1wIrwMoYDsnCLQXdZlFglF92WE")
 
-# Streamlit configuration
-st.set_page_config(
-    page_title="FinGPT One - Stock Analysis",
-    layout="wide",
-    initial_sidebar_state="expanded",
-    page_icon="📈"
-)
+def get_secret(key_name):
+    """Safely fetch secrets from Streamlit Cloud or local .env without crashing."""
+    try:
+        # Check Streamlit's native secrets first
+        if key_name in st.secrets:
+            return st.secrets[key_name]
+    except Exception:
+        pass
+    # Fallback to local environment variables
+    return os.getenv(key_name)
 
-# Custom CSS
-st.markdown("""
-<style>
-    .main { background-color: #1E1E1E; }
-    .section-title { color: #00ACC1; font-size: 24px; font-weight: bold; margin-bottom: 10px; }
-    .metric-card { background-color: #2D2D2D; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 10px; }
-</style>
-""", unsafe_allow_html=True)
+# Assign keys
+TIINGO_API_KEY = get_secret("TIINGO_API_KEY")
+FMP_API_KEY = get_secret("FMP_API_KEY")
+ALPHA_VANTAGE_API_KEY = get_secret("ALPHA_VANTAGE_API_KEY")
+GEMINI_API_KEY = get_secret("GEMINI_API_KEY")
 
+# --- 2. COMPONENT IMPORTS ---
+try:
+    from Components.stock_summary import display_stock_summary
+    from Components.probabilistic_stock_model import display_probabilistic_models
+    from Components.forecast_module import display_forecasting
+    from Components.financials import display_financials
+except ImportError as e:
+    st.error(f"⚠️ Component Import Error: {e}")
+
+# --- 3. APP CONFIGURATION ---
+st.set_page_config(page_title="FinGPT One - Pro", layout="wide", page_icon="📈")
+
+# --- 4. THE DATA ENGINE ---
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_historical_data(ticker_symbol, fmp_api_key, retries=3, initial_delay=0.5):
-    """Load historical data. yfinance primary, FMP fallback."""
-    if not ticker_symbol:
-        return pd.DataFrame()
-
-    for attempt in range(retries + 1):
+def fetch_stock_data(symbol):
+    """Multi-layer failover data engine."""
+    # LAYER 1: TIINGO
+    if TIINGO_API_KEY and TIINGO_API_KEY != "your_tiingo_code_here":
         try:
-            ticker = yf.Ticker(ticker_symbol)
-            hist_df = ticker.history(period="2y", auto_adjust=True, timeout=15)
-            if isinstance(hist_df, pd.DataFrame) and not hist_df.empty:
-                hist_df.reset_index(inplace=True)
-                hist_df['Date'] = pd.to_datetime(hist_df['Date']).dt.date
-                hist_df = hist_df.sort_values('Date').set_index('Date')
-                return hist_df
-            else:
-                logging.error(f"No price data found for {ticker_symbol} (yfinance)")
-        except Exception as e:
-            logging.warning(f"yfinance attempt {attempt} failed for {ticker_symbol}: {e}")
-            if attempt < retries:
-                time.sleep(initial_delay * (2 ** attempt))
-
-    if fmp_api_key and fmp_api_key != "YOUR_FMP_KEY":
-        try:
-            url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{ticker_symbol}?apikey={fmp_api_key}"
-            response = requests.get(url, timeout=15)
-            data = response.json()
-            if "historical" in data:
-                df = pd.DataFrame(data["historical"])
+            url = f"https://api.tiingo.com/tiingo/daily/{symbol}/prices?token={TIINGO_API_KEY}"
+            res = requests.get(url, timeout=5).json()
+            if isinstance(res, list) and len(res) > 0:
+                df = pd.DataFrame(res)
                 df['date'] = pd.to_datetime(df['date']).dt.date
-                df = df.rename(columns={'date': 'Date', 'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close', 'volume': 'Volume'})
-                return df.set_index('Date').sort_index()
-        except Exception as e:
-            logging.error(f"FMP fallback failed: {e}")
+                df = df.rename(columns={'adjClose': 'Close', 'adjHigh': 'High', 'adjLow': 'Low', 'adjOpen': 'Open', 'adjVolume': 'Volume'})
+                return df.set_index('date').sort_index(), "Tiingo Institutional"
+        except: pass
 
-    return pd.DataFrame()  # empty if all fails
+    # LAYER 2: ALPHA VANTAGE
+    if ALPHA_VANTAGE_API_KEY:
+        try:
+            url = f'https://www.alphavantage.co/query?function=TIME_SERIES_DAILY_ADJUSTED&symbol={symbol}&apikey={ALPHA_VANTAGE_API_KEY}'
+            data = requests.get(url, timeout=5).json()
+            if "Time Series (Daily)" in data:
+                df = pd.DataFrame.from_dict(data["Time Series (Daily)"], orient='index')
+                df.index = pd.to_datetime(df.index).date
+                df = df.rename(columns={"1. open": "Open", "2. high": "High", "3. low": "Low", "4. close": "Close", "6. volume": "Volume"}).astype(float)
+                return df.sort_index(), "Alpha Vantage"
+        except: pass
 
+    # LAYER 3: YFINANCE (The most reliable backup)
+    try:
+        ticker_obj = yf.Ticker(symbol)
+        df = ticker_obj.history(period="2y")
+        if not df.empty:
+            df.index = df.index.date
+            return df, "Yahoo Finance"
+    except: pass
+
+    return pd.DataFrame(), None
+
+# --- 5. MAIN INTERFACE ---
 def main():
-    st.sidebar.title("FinGPT One")
+    st.sidebar.title("💎 FinGPT One")
     query = st.sidebar.text_input("Enter Ticker:", value="AAPL").strip().upper()
     
-    page = st.sidebar.radio("Go to:", [
-        "Stock Summary", "Probabilistic Models", "Forecasting", "Financial Statements"
+    page = st.sidebar.radio("Dashboard Navigation", [
+        "Stock Summary", "Forecasting", "Probabilistic Models", "Financials"
     ])
 
-    if not query:
-        st.warning("Please enter a ticker symbol.")
-        return
+    if query:
+        if 'data' not in st.session_state or st.session_state.get('last_ticker') != query:
+            with st.spinner(f"Connecting to Markets for {query}..."):
+                df, src = fetch_stock_data(query)
+                st.session_state.data = df
+                st.session_state.source = src
+                st.session_state.last_ticker = query
 
-    if 'hist_data' not in st.session_state or st.session_state.get('last_ticker') != query:
-        with st.spinner(f"Loading data for {query}..."):
-            st.session_state.hist_data = load_historical_data(query, FMP_API_KEY)
-            st.session_state.last_ticker = query
+        hist_data = st.session_state.data
+        source = st.session_state.source
 
-    hist_data = st.session_state.hist_data
-
-    if hist_data is None or (isinstance(hist_data, pd.DataFrame) and hist_data.empty):
-        st.error(f"❌ Could not find data for {query}. Check ticker or API limits.")
-        return
-
-    if page == "Stock Summary":
-        display_stock_summary(query, hist_data, FMP_API_KEY, ALPHA_VANTAGE_API_KEY, GEMINI_API_KEY)
-    
-    elif page == "Probabilistic Models":
-        display_probabilistic_models(hist_data)
-
-    elif page == "Forecasting":
-        display_forecasting(hist_data, query)
-
-    elif page == "Financial Statements":
-        display_financials(query)
+        if not hist_data.empty:
+            st.sidebar.info(f"Connected via {source}")
+            
+            if page == "Stock Summary":
+                display_stock_summary(query, hist_data, FMP_API_KEY, ALPHA_VANTAGE_API_KEY, GEMINI_API_KEY)
+            elif page == "Forecasting":
+                display_forecasting(hist_data, query)
+            elif page == "Probabilistic Models":
+                display_probabilistic_models(hist_data)
+            elif page == "Financials":
+                display_financials(query)
+        else:
+            st.error(f"Could not find data for {query}.")
 
 if __name__ == "__main__":
     main()
-
