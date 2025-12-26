@@ -10,3 +10,12 @@
 2025-07-01 23:04:09,066 - ERROR - Failed to get ticker 'AAPL' reason: Expecting value: line 1 column 1 (char 0)
 2025-07-01 23:04:09,067 - ERROR - AAPL: No timezone found, symbol may be delisted
 2025-07-01 23:04:11,327 - INFO - FMP success for AAPL: 1255 rows
+2025-07-01 23:20:53,487 - ERROR - Failed to get ticker 'AAPL' reason: Expecting value: line 1 column 1 (char 0)
+2025-07-01 23:20:53,488 - ERROR - AAPL: No timezone found, symbol may be delisted
+2025-07-01 23:20:55,300 - INFO - FMP success for AAPL: 1255 rows
+2025-12-26 15:00:32,546 - ERROR - Failed to get ticker 'AAPL' reason: Expecting value: line 1 column 1 (char 0)
+2025-12-26 15:00:32,563 - ERROR - AAPL: No timezone found, symbol may be delisted
+2025-12-26 15:00:39,991 - ERROR - FMP API key unauthorized for AAPL
+2025-12-26 15:01:01,775 - ERROR - Failed to get ticker 'AAPL' reason: Expecting value: line 1 column 1 (char 0)
+2025-12-26 15:01:01,776 - ERROR - AAPL: No timezone found, symbol may be delisted
+2025-12-26 15:01:07,741 - ERROR - FMP API key unauthorized for AAPL
