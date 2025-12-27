@@ -190,7 +190,7 @@ def display_news_sentiment(ticker, news_api_key, fmp_api_key):
         st.error("❌ Invalid ticker.")
         return
     ticker = ticker.strip().upper()
-    st.markdown(f"<h3>News Sentiment for {ticker}</h3>", unsafe_allow_html=True)
+    st.markdown(f"<h3>📰 News Sentiment for {ticker}</h3>", unsafe_allow_html=True)
     num_articles = st.slider("Number of articles to analyze", 10, 100, 30, step=10, key=f"news_{ticker}")
     company_name = get_company_name_from_ticker(ticker, fmp_api_key)
     query = f'"{company_name}" OR "{ticker}"'
@@ -224,10 +224,10 @@ def display_news_sentiment(ticker, news_api_key, fmp_api_key):
 
     word_freq = create_word_cloud_data(articles)
     if word_freq:
-        st.markdown("### Most Mentioned Keywords")
+        st.markdown("### 🔑 Most Mentioned Keywords")
         st.dataframe(pd.DataFrame(word_freq, columns=['Keyword','Frequency']), use_container_width=True)
 
-    st.markdown("### Latest Articles")
+    st.markdown("### 📋 Latest Articles")
     for t, s, src, url, d in zip(titles, sentiments, sources, urls, dates):
         label = "Positive" if s > 0.05 else "Negative" if s < -0.05 else "Neutral"
         color_map = {'Positive':'limegreen','Negative':'tomato','Neutral':'lightgray'}
@@ -267,7 +267,7 @@ def main():
             source = st.session_state.source
 
             if not hist_data.empty:
-                st.sidebar.info(f"Connected via {source}")
+                st.sidebar.info(f"✅ Connected via {source}")
                 
                 if page == "Stock Summary":
                     display_stock_summary(query, hist_data, FMP_API_KEY, ALPHA_VANTAGE_API_KEY, GEMINI_API_KEY)
@@ -276,9 +276,10 @@ def main():
                 elif page == "Probabilistic Models":
                     display_probabilistic_models(hist_data)
                 elif page == "Financials":
-                    display_financials(query)
+                    # FIXED: Pass TIINGO_API_KEY to display_financials
+                    display_financials(query, TIINGO_API_KEY)
             else:
-                st.error(f"Could not find data for {query}.")
+                st.error(f"❌ Could not find data for {query}. Please check the ticker symbol.")
         else:
             # News Sentiment Page
             display_news_sentiment(query, NEWS_API_KEY, FMP_API_KEY)
