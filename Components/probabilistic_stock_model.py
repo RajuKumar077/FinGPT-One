@@ -1,470 +1,340 @@
 import streamlit as st
 import pandas as pd
-from sklearn.model_selection import train_test_split, cross_val_score, GridSearchCV
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-from sklearn.metrics import accuracy_score, classification_report, roc_auc_score, roc_curve
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import numpy as np
-import ta  # Library for technical analysis indicators
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, classification_report, roc_auc_score, confusion_matrix
+from sklearn.preprocessing import StandardScaler
+import plotly.graph_objects as go
+import plotly.express as px
+import plotly.figure_factory as ff
+import ta
+from ta.momentum import RSIIndicator, ROCIndicator
+from ta.trend import MACD
+from ta.volatility import BollingerBands
+import warnings
+warnings.filterwarnings('ignore')
 
+# Custom CSS for enhanced styling
+st.markdown("""
+<style>
+    .main-header {
+        background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+        padding: 2rem;
+        border-radius: 16px;
+        text-align: center;
+        color: white;
+        margin-bottom: 2rem;
+        box-shadow: 0 10px 30px rgba(30, 58, 138, 0.3);
+    }
+    .prediction-card {
+        background: linear-gradient(145deg, #10b981 0%, #059669 100%);
+        border-radius: 20px;
+        padding: 2rem;
+        color: white;
+        text-align: center;
+        box-shadow: 0 15px 35px rgba(16, 185, 129, 0.3);
+        margin: 2rem 0;
+    }
+    .prediction-card.bearish {
+        background: linear-gradient(145deg, #ef4444 0%, #dc2626 100%);
+        box-shadow: 0 15px 35px rgba(239, 68, 68, 0.3);
+    }
+    .prediction-card.neutral {
+        background: linear-gradient(145deg, #f59e0b 0%, #d97706 100%);
+        box-shadow: 0 15px 35px rgba(245, 158, 11, 0.3);
+    }
+    .metric-container {
+        background: rgba(255, 255, 255, 0.05);
+        padding: 1rem;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .stPlotlyChart {
+        border-radius: 12px !important;
+        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1) !important;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def compute_rsi(series, period=14):
-    """Computes the Relative Strength Index (RSI)."""
-    # Using 'ta' library for more robust RSI calculation
-    return ta.momentum.RSIIndicator(series, window=period).rsi()
-
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def add_common_features(hist_df):
-    """Adds various technical indicators as features common to multiple modules."""
+def add_advanced_features(hist_df):
+    """🚀 Enhanced Feature Engineering - 15+ Robust Indicators (Handles Edge Cases)"""
     if hist_df.empty:
-        return hist_df
-
-    df = hist_df.copy()
-    required_columns = ['Close', 'Volume', 'High', 'Low', 'Open']  # Added 'Open' for more indicators
-
-    # Validate required columns
-    missing_cols = [col for col in required_columns if col not in df.columns]
-    if missing_cols:
-        st.error(f"❌ Missing required columns: {', '.join(missing_cols)}. Cannot compute features.")
         return pd.DataFrame()
-
-    # Ensure numeric columns
-    for col in required_columns:
+    
+    df = hist_df[['Close', 'High', 'Low', 'Open', 'Volume']].copy().tail(500)
+    
+    for col in df.columns:
         df[col] = pd.to_numeric(df[col], errors='coerce')
-        if df[col].isnull().all():
-            st.error(f"❌ Column '{col}' contains only invalid or missing values. Cannot compute features.")
-            return pd.DataFrame()
-
-    # --- Basic Features ---
-    df['Return_1d'] = df['Close'].pct_change()
-    df['MA10'] = df['Close'].rolling(window=10).mean()
-    df['MA50'] = df['Close'].rolling(window=50).mean()
-    df['Volatility'] = df['Close'].rolling(window=10).std()
-
-    # --- Advanced Technical Indicators using 'ta' library ---
-    # Momentum Indicators
-    df['RSI'] = compute_rsi(df['Close'], 14)
-    df['MACD'] = ta.trend.MACD(df['Close']).macd()
-    df['MACD_Signal'] = ta.trend.MACD(df['Close']).macd_signal()
-    df['Stoch_K'] = ta.momentum.StochasticOscillator(df['High'], df['Low'], df['Close']).stoch()
-    df['Stoch_D'] = ta.momentum.StochasticOscillator(df['High'], df['Low'], df['Close']).stoch_signal()
-
-    # Volume Indicators
-    df['Volume_MA5'] = ta.volume.VolumeWeightedAveragePrice(df['High'], df['Low'], df['Close'], df['Volume']).volume_weighted_average_price() # Using VWAP for Volume MA5, more robust
-    df['OBV'] = ta.volume.OnBalanceVolumeIndicator(df['Close'], df['Volume']).on_balance_volume()
-
-    # Volatility Indicators
-    df['ATR'] = ta.volatility.AverageTrueRange(df['High'], df['Low'], df['Close']).average_true_range()
-
-    # Price Action Indicators
-    df['High_Low_Diff'] = (df['High'] - df['Low']) / df['Close']
-    df['Open_Close_Diff'] = (df['Close'] - df['Open']) / df['Open']
-
-    # Target variable: 1 if next day's close > current day's close, else 0
-    df['Target'] = (df['Close'].shift(-1) > df['Close']).astype(int)
-
-    df.dropna(inplace=True)
+    
+    n_rows = len(df)
+    if n_rows < 10:
+        return pd.DataFrame()
+    
+    # Adaptive windows
+    short_w = max(3, min(5, n_rows // 10))
+    med_w = max(10, min(20, n_rows // 5))
+    rsi_w = max(5, min(14, n_rows // 5))
+    
+    # Core Returns
+    df['Return_1d'] = df['Close'].pct_change().fillna(0)
+    df['Return_5d'] = df['Close'].pct_change(5).fillna(0)
+    
+    # Price Action
+    df['HL_Range'] = (df['High'] - df['Low']) / df['Close']
+    df['Body_Size'] = abs(df['Close'] - df['Open']) / df['Open'].replace(0, 1)
+    df['Upper_Shadow'] = (df['High'] - df[['Open', 'Close']].max(axis=1)) / df['Close']
+    df['Lower_Shadow'] = (df[['Open', 'Close']].min(axis=1) - df['Low']) / df['Close']
+    
+    # Moving Averages
+    df['MA_short'] = df['Close'].rolling(window=short_w, min_periods=1).mean()
+    df['MA_med'] = df['Close'].rolling(window=med_w, min_periods=1).mean()
+    df['MA_ratio_short'] = df['Close'] / df['MA_short']
+    df['MA_ratio_med'] = df['Close'] / df['MA_med']
+    
+    # Volatility
+    df['Volatility'] = df['Return_1d'].rolling(window=short_w, min_periods=2).std().fillna(0)
+    
+    # RSI (Safe)
+    try:
+        rsi_obj = RSIIndicator(close=df['Close'], window=rsi_w)
+        df['RSI'] = rsi_obj.rsi().fillna(50)
+        df['RSI_Oversold'] = (df['RSI'] < 30).astype(int)
+        df['RSI_Overbought'] = (df['RSI'] > 70).astype(int)
+    except Exception as e:
+        df['RSI'] = 50.0
+        df['RSI_Oversold'] = 0
+        df['RSI_Overbought'] = 0
+    
+    # Volume
+    vol_ma = df['Volume'].rolling(window=short_w, min_periods=1).mean()
+    df['Vol_Ratio'] = df['Volume'] / vol_ma.replace(0, 1)
+    
+    # MACD (Safe)
+    try:
+        macd_obj = MACD(close=df['Close'])
+        df['MACD'] = macd_obj.macd().fillna(0)
+        df['MACD_Signal'] = macd_obj.macd_signal().fillna(0)
+    except Exception:
+        df['MACD'] = 0.0
+        df['MACD_Signal'] = 0.0
+    
+    # Bollinger Bands (Safe)
+    try:
+        bb_obj = BollingerBands(close=df['Close'], window=20, window_dev=2)
+        df['BB_Position'] = ((df['Close'] - bb_obj.bollinger_lband()) / (bb_obj.bollinger_hband() - bb_obj.bollinger_lband())).fillna(0.5)
+    except Exception:
+        df['BB_Position'] = 0.5
+    
+    # ROC (Rate of Change)
+    try:
+        roc_obj = ROCIndicator(close=df['Close'], window=10)
+        df['ROC_10'] = roc_obj.roc().fillna(0)
+    except Exception:
+        df['ROC_10'] = 0.0
+    
+    # Multi-Targets
+    df['Target_1d'] = (df['Close'].shift(-1) > df['Close']).astype(int)
+    df['Target_3d'] = (df['Close'].shift(-3) > df['Close']).astype(int)
+    df['Target_5d'] = (df['Close'].shift(-5) > df['Close']).astype(int)
+    
+    # Clean
+    df = df.ffill().bfill().iloc[:-1]  # Remove last (no target)
     return df
 
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def train_and_evaluate_model(X_train, y_train, X_test, y_test, model_type='RandomForest'):
-    """Trains and evaluates a machine learning model."""
-    if model_type == 'RandomForest':
-        model = RandomForestClassifier(random_state=42, n_jobs=-1)
-        param_grid = {
-            'n_estimators': [50, 100, 150],
-            'max_depth': [5, 10, None]
-        }
-    elif model_type == 'GradientBoosting':
-        model = GradientBoostingClassifier(random_state=42)
-        param_grid = {
-            'n_estimators': [50, 100, 150],
-            'learning_rate': [0.01, 0.1, 0.2]
-        }
-    else:
-        st.error("Unsupported model type.")
-        return None, None, None, None
-
-    # Hyperparameter Tuning with GridSearchCV
-    # We will control the spinner from the calling function `display_probabilistic_models`
-    grid_search = GridSearchCV(model, param_grid, cv=3, scoring='accuracy', n_jobs=-1)
-    grid_search.fit(X_train, y_train)
-    best_model = grid_search.best_estimator_
-    st.write(f"**Best {model_type} Parameters:** {grid_search.best_params_}")
-
-    # Cross-validation
-    cv_scores = cross_val_score(best_model, X_train, y_train, cv=5, scoring='accuracy', n_jobs=-1)
-    st.write(f"**Cross-Validation Accuracy (5-fold):** {np.mean(cv_scores):.2f} ± {np.std(cv_scores):.2f}")
-
-    best_model.fit(X_train,
-                    y_train)  # Re-fit the best model on the full training set (though GridSearchCV already does this implicitly)
-
-    y_pred = best_model.predict(X_test)
-    y_proba = best_model.predict_proba(X_test)[:, 1]
-
-    return best_model, y_pred, y_proba, cv_scores
-
+def train_model(X_train, y_train, X_test, y_test):
+    """🎯 Robust Ensemble Training with Class Balancing"""
+    scaler = StandardScaler()
+    X_train_s = scaler.fit_transform(X_train)
+    X_test_s = scaler.transform(X_test)
+    
+    model = RandomForestClassifier(
+        n_estimators=150,
+        max_depth=10,
+        min_samples_split=5,
+        class_weight='balanced',  # Handle imbalance
+        random_state=42,
+        n_jobs=-1
+    )
+    model.fit(X_train_s, y_train)
+    
+    y_pred = model.predict(X_test_s)
+    y_proba = model.predict_proba(X_test_s)[:, 1] if len(model.classes_) == 2 else np.full(len(X_test), 0.5)
+    
+    return scaler, model, y_pred, y_proba
 
 def display_probabilistic_models(hist_data):
-    st.markdown("<h3 class='section-title'>Probabilistic Stock Models (Daily Prediction)</h3>", unsafe_allow_html=True)
-
-    if hist_data.empty:
-        st.warning(
-            "⚠️ No historical data provided. Please select a stock and load historical data to run probabilistic models.")
-        return
-
-    # Validate input data
-    required_columns = ['Close', 'Volume', 'High', 'Low', 'Open']
-    missing_cols = [col for col in required_columns if col not in hist_data.columns]
-    if missing_cols:
-        st.error(
-            f"❌ Historical data missing required columns: {', '.join(missing_cols)}. Cannot run probabilistic models.")
-        return
-
-    # Create a placeholder for status messages and progress
-    status_placeholder = st.empty()
-
-    with status_placeholder.container(): # Use a container to hold multiple messages
-        with st.spinner("🚀 Preparing data and engineering features..."):
-            df = add_common_features(hist_data)
-
-    if df.empty:
-        status_placeholder.error("❌ Failed to compute features due to insufficient or invalid data. Check historical data source.")
-        return
-
-    # Ensure enough data points
-    min_data_points_required = 100  # Increased requirement for more complex features
-    if len(df) < min_data_points_required:
-        status_placeholder.warning(
-            f"⚠️ Not enough data points ({len(df)} < {min_data_points_required}) after feature engineering. Try a ticker with more history or a shorter date range.")
-        return
-
-    st.markdown(
-        "<p>This section uses machine learning models (Random Forest or Gradient Boosting) to predict whether the stock's closing price will go up (1) or down (0) the next day, based on an extended set of technical indicators.</p>",
-        unsafe_allow_html=True)
-
-    # User Configuration for Model
-    st.sidebar.subheader("Model Configuration")
-    selected_model_type = st.sidebar.selectbox("Choose Model Type:", ["RandomForest", "GradientBoosting"])
-    test_size_ratio = st.sidebar.slider("Test Set Size Ratio:", min_value=0.1, max_value=0.4, value=0.2, step=0.05)
-
-    # Model Training
-    st.markdown("<h5>Model Training & Performance:</h5>", unsafe_allow_html=True)
-
-    features = [
-        'Return_1d', 'MA10', 'MA50', 'Volatility', 'RSI', 'MACD', 'MACD_Signal',
-        'Stoch_K', 'Stoch_D', 'Volume_MA5', 'OBV', 'ATR', 'High_Low_Diff', 'Open_Close_Diff'
-    ]
-
-    # Verify features exist and have no NaNs (after initial dropna, but as a safeguard)
-    available_features = [f for f in features if f in df.columns and not df[f].isnull().all()]
-    if len(available_features) != len(features):
-        st.warning(
-            f"⚠️ Some features could not be computed or contain only NaNs and will be excluded: {', '.join(missing)}. Please check data completeness for best results.")
-    features = available_features  # Use only computed features
-
-    if not features:
-        st.error("❌ No valid features available for model training. Check data and feature engineering steps.")
-        return
-
-    X = df[features]
-    y = df['Target']
-
-    # Check for sufficient class diversity
-    if y.nunique() < 2:
-        st.warning(
-            "⚠️ Insufficient class diversity (all price movements are up or down) in the target variable. Cannot train a meaningful model.")
-        return
-
-    # Train-test split
-    try:
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size_ratio, random_state=42,
-                                                            stratify=y)
-        display_metrics = True
-    except ValueError as e:
-        st.warning(
-            f"⚠️ Failed to split data: {e}. Training on full dataset for prediction, but metrics will not be displayed comprehensively.")
-        X_train, y_train = X, y
-        X_test, y_test = pd.DataFrame(), pd.Series()  # Ensure X_test, y_test are empty if split fails
-        display_metrics = False
-
-    # New placeholder for model training status
-    model_training_status_placeholder = st.empty()
-    with model_training_status_placeholder.container():
-        with st.spinner(f"🏋️‍♀️ Training {selected_model_type} model... This includes hyperparameter tuning and cross-validation."):
-            best_model, y_pred, y_proba, cv_scores = train_and_evaluate_model(X_train, y_train, X_test, y_test,
-                                                                              model_type=selected_model_type)
+    """🎯 Pro AI Prediction Dashboard - Enhanced with Multi-Horizon & Backtest"""
     
-    if best_model is None:
-        model_training_status_placeholder.error("Model training failed.")
+    # Header
+    st.markdown("""
+    <div class="main-header">
+        <h1 style='margin: 0; font-size: 3rem;'>🎯 AI Stock Prediction Engine Pro</h1>
+        <p style='margin: 0; font-size: 1.2rem; opacity: 0.9;'>Powered by 15+ Technical Indicators | Multi-Horizon Forecasting</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    if hist_data.empty:
+        st.error("❌ No historical data available.")
         return
+    
+    # Progress
+    progress_container = st.container()
+    status_text = st.empty()
+    progress_bar = st.progress(0)
+    
+    with progress_container:
+        status_text.text("🔄 Engineering Advanced Features...")
+        pro_df = add_advanced_features(hist_data)
+        progress_bar.progress(30)
+    
+    if pro_df.empty or len(pro_df) < 10:
+        st.error(f"❌ Need 10+ days of data. Current: {len(pro_df)}")
+        return
+    
+    status_text.text("⚙️ Configuring Model...")
+    
+    # Controls
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        test_size = st.slider("🧪 Test Split (%)", 15, 40, 25, 5)
+    with col2:
+        horizon = st.selectbox("🎯 Prediction Horizon", ["1-Day", "3-Day", "5-Day"], index=0)
+        target_col = {'1-Day': 'Target_1d', '3-Day': 'Target_3d', '5-Day': 'Target_5d'}[horizon]
+    
+    # Features
+    features = [
+        'Return_1d', 'Return_5d', 'HL_Range', 'Body_Size', 'Upper_Shadow', 'Lower_Shadow',
+        'MA_ratio_short', 'MA_ratio_med', 'Volatility', 'RSI', 'RSI_Oversold', 'RSI_Overbought',
+        'Vol_Ratio', 'MACD', 'MACD_Signal', 'BB_Position', 'ROC_10'
+    ]
+    available_features = [f for f in features if f in pro_df.columns]
+    
+    X = pro_df[available_features]
+    y = pro_df[target_col]
+    
+    # Split
+    split_idx = int(len(X) * (1 - test_size / 100))
+    X_train, X_test = X.iloc[:split_idx], X.iloc[split_idx:]
+    y_train, y_test = y.iloc[:split_idx], y.iloc[split_idx:]
+    
+    status_text.text("🤖 Training Ensemble Model...")
+    progress_bar.progress(60)
+    
+    scaler, model, y_pred, y_proba = train_model(X_train, y_train, X_test, y_test)
+    progress_bar.progress(100)
+    
+    # Metrics Dashboard
+    st.markdown("### 📊 Model Performance Metrics")
+    acc = accuracy_score(y_test, y_pred)
+    auc = roc_auc_score(y_test, y_proba) if len(np.unique(y_test)) > 1 else 0.5
+    
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("🎯 Accuracy", f"{acc:.2%}", delta=None)
+    col2.metric("📈 AUC-ROC", f"{auc:.3f}", delta=None)
+    col3.metric("🏭 Train Size", f"{len(X_train):,}", delta=None)
+    col4.metric("🧪 Test Size", f"{len(X_test):,}", delta=None)
+    
+    # Prediction Card
+    last_features = X.tail(1)
+    last_scaled = scaler.transform(last_features)
+    prob_up = model.predict_proba(last_scaled)[0, 1]
+    
+    confidence = max(prob_up, 1 - prob_up)
+    if prob_up > 0.55:
+        signal_class = "bullish"
+        signal_text = "🟢 BULLISH"
+    elif prob_up < 0.45:
+        signal_class = "bearish"
+        signal_text = "🔴 BEARISH"
     else:
-        # Replace the spinner with a success message and an expander for details
-        model_training_status_placeholder.success(f"✅ {selected_model_type} Model Training Completed!")
-        with st.expander("View Training Details"):
-            st.write(f"**Best {selected_model_type} Parameters:** {best_model.get_params()}")
-            if cv_scores is not None:
-                st.write(f"**Cross-Validation Accuracy (5-fold):** {np.mean(cv_scores):.2f} ± {np.std(cv_scores):.2f}")
-
-
-    if display_metrics:
-        # Using st.metrics for overall accuracy and AUC score
+        signal_class = "neutral"
+        signal_text = "🟡 NEUTRAL"
+    
+    st.markdown(f"""
+    <div class="prediction-card {signal_class}">
+        <h2 style='margin: 0; font-size: 2.5rem;'>{signal_text}</h2>
+        <p style='margin: 0.5rem 0; font-size: 1.5rem;'>P(UP): <strong>{prob_up:.1%}</strong></p>
+        <p style='margin: 0; font-size: 1.2rem;'>Confidence: <strong>{confidence:.1%}</strong> | Horizon: {horizon}</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Feature Importance
+    st.markdown("### 🏆 Feature Importance (Top Contributors)")
+    importances = pd.Series(model.feature_importances_, index=available_features).sort_values(ascending=True)
+    fig_importance = px.bar(importances.tail(8), orientation='h', title="Key Predictive Features",
+                            color=importances.tail(8), color_continuous_scale='viridis')
+    fig_importance.update_layout(height=400, template='plotly_white')
+    st.plotly_chart(fig_importance, use_container_width=True)
+    
+    # Confusion Matrix
+    st.markdown("### 🔍 Confusion Matrix")
+    try:
+        cm = confusion_matrix(y_test, y_pred)
+        fig_cm = ff.create_annotated_heatmap(
+            z=cm, x=['Actual Down', 'Actual Up'], y=['Pred Down', 'Pred Up'],
+            annotation_text=cm, colorscale='Blues', showscale=True
+        )
+        fig_cm.update_layout(title="Prediction vs Actual", height=350, template='plotly_white')
+        st.plotly_chart(fig_cm, use_container_width=True)
+    except Exception:
+        st.info("⚠️ Skipping confusion matrix due to data issues.")
+    
+    # Prediction Evolution
+    st.markdown("### 📈 Prediction Confidence Over Time")
+    recent_n = min(100, len(X))
+    recent_proba = model.predict_proba(scaler.transform(X.tail(recent_n)))[:, 1]
+    recent_price = pro_df['Close'].tail(recent_n)
+    
+    fig_evo = go.Figure()
+    fig_evo.add_trace(go.Scatter(x=recent_price.index, y=recent_price, name='Price', line=dict(color='#1f77b4', width=2)))
+    fig_evo.add_trace(go.Scatter(x=recent_price.index, y=recent_proba, name='P(UP)', line=dict(color='#ff7f0e', width=2, dash='dot'), yaxis='y2'))
+    fig_evo.update_layout(
+        height=450, template='plotly_white', title="Price Trend vs Prediction Confidence",
+        yaxis=dict(title="Price ($)"), yaxis2=dict(title="P(UP)", overlaying='y', side='right')
+    )
+    st.plotly_chart(fig_evo, use_container_width=True)
+    
+    # Simple Backtest
+    st.markdown("### 💹 Quick Backtest (Strategy vs Buy & Hold)")
+    try:
+        historical_pred = model.predict(scaler.transform(X))
+        strategy_returns = np.where(historical_pred == 1, pro_df['Return_1d'].shift(-1), -pro_df['Return_1d'].shift(-1))
+        strategy_returns = pd.Series(strategy_returns, index=pro_df.index).fillna(0)
+        cum_strategy = (1 + strategy_returns).cumprod().iloc[-1]
+        cum_buyhold = (1 + pro_df['Return_1d']).cumprod().iloc[-1]
+        
         col1, col2 = st.columns(2)
-        with col1:
-            st.metric(label="Overall Model Accuracy", value=f"{accuracy_score(y_test, y_pred):.2f}")
-        try:
-            auc_score = roc_auc_score(y_test, y_proba)
-            with col2:
-                st.metric(label="ROC AUC Score", value=f"{auc_score:.2f}")
-        except ValueError:
-            st.warning("Could not calculate ROC AUC score (might be due to single class in test set).")
+        col1.metric("🤖 AI Strategy Return", f"{cum_strategy:.1%}", delta=f"{cum_strategy - cum_buyhold:+.1%}")
+        col2.metric("📈 Buy & Hold Return", f"{cum_buyhold:.1%}")
+        
+        # Backtest Plot
+        fig_bt = go.Figure()
+        fig_bt.add_trace(go.Scatter(x=pro_df.index, y=(1 + pro_df['Return_1d']).cumprod(), name='Buy & Hold', line=dict(color='#ef4444')))
+        fig_bt.add_trace(go.Scatter(x=pro_df.index, y=(1 + strategy_returns).cumprod(), name='AI Strategy', line=dict(color='#10b981')))
+        fig_bt.update_layout(height=400, template='plotly_white', title="Cumulative Returns Comparison")
+        st.plotly_chart(fig_bt, use_container_width=True)
+    except Exception as e:
+        st.info(f"⚠️ Backtest skipped: {str(e)[:50]}...")
+    
+    # Classification Report
+    st.markdown("### 📋 Detailed Classification Report")
+    try:
+        report = classification_report(y_test, y_pred, output_dict=True)
+        report_df = pd.DataFrame({
+            'Class': ['Down', 'Up', 'Macro Avg'],
+            'Precision': [report['0']['precision'], report['1']['precision'], report['macro avg']['precision']],
+            'Recall': [report['0']['recall'], report['1']['recall'], report['macro avg']['recall']],
+            'F1-Score': [report['0']['f1-score'], report['1']['f1-score'], report['macro avg']['f1-score']]
+        }).round(3)
+        st.dataframe(report_df.style.background_gradient(cmap='Blues', subset=['F1-Score']), use_container_width=True)
+    except Exception:
+        st.info("⚠️ Report generation skipped due to class imbalance.")
+    
+    st.markdown("---")
+    st.success("✨ **Pro AI Model Deployed** | Ready for Multi-Horizon Predictions")
 
-        st.markdown("<h6>Classification Report:</h6>", unsafe_allow_html=True)
-        try:
-            report_dict = classification_report(y_test, y_pred, output_dict=True, zero_division=0)
-
-            # --- Dynamic Classification Report Display (improved) ---
-            st.markdown("<p>Detailed performance metrics for each prediction class:</p>", unsafe_allow_html=True)
-            
-            if '0' in report_dict and '1' in report_dict:
-                # Create a DataFrame for better display
-                report_data = {
-                    'Metric': ['Precision', 'Recall', 'F1-Score', 'Support'],
-                    'Class 0 (DOWN) 🔴': [
-                        f"{report_dict['0']['precision']:.2f}",
-                        f"{report_dict['0']['recall']:.2f}",
-                        f"{report_dict['0']['f1-score']:.2f}",
-                        int(report_dict['0']['support'])
-                    ],
-                    'Class 1 (UP) 🟢': [
-                        f"{report_dict['1']['precision']:.2f}",
-                        f"{report_dict['1']['recall']:.2f}",
-                        f"{report_dict['1']['f1-score']:.2f}",
-                        int(report_dict['1']['support'])
-                    ]
-                }
-                report_df_display = pd.DataFrame(report_data)
-                st.dataframe(report_df_display.set_index('Metric').style.set_properties(**{'text-align': 'center'}).set_table_styles([dict(selector='th', props=[('text-align', 'center')])]))
-
-
-                # --- Dynamic Conclusion (with more emphasis on key metrics) ---
-                st.markdown("<h6>Model Performance Summary:</h6>", unsafe_allow_html=True)
-
-                precision_up = report_dict['1']['precision']
-                recall_up = report_dict['1']['recall']
-                f1_up = report_dict['1']['f1-score']
-                support_up = report_dict['1']['support']
-
-                precision_down = report_dict['0']['precision']
-                recall_down = report_dict['0']['recall']
-                f1_down = report_dict['0']['f1-score']
-                support_down = report_dict['0']['support']
-
-                st.markdown(f"""
-                <p>The model's overall accuracy on the test set is <b>{accuracy_score(y_test, y_pred):.2f}</b>, meaning it correctly predicts the direction of price movement in approximately {accuracy_score(y_test, y_pred)*100:.0f}% of cases.
-                The ROC AUC score of <b>{auc_score:.2f}</b> indicates its ability to distinguish between upward and downward movements, with a score closer to 1 being ideal.</p>
-                """, unsafe_allow_html=True)
-
-                st.markdown("<h6>Detailed Class Performance Insights:</h6>", unsafe_allow_html=True)
-
-                col_up, col_down = st.columns(2)
-
-                with col_up:
-                    st.markdown(f"<h5 style='color:#32CD32;'>🚀 Upward Movement (Class 1)</h5>", unsafe_allow_html=True)
-                    st.metric(label="Precision (Up)", value=f"{precision_up:.2f}", delta_color="off")
-                    st.markdown(f"<small><i>When predicting 'Up', the model is correct <b>{precision_up*100:.0f}%</b> of the time.</i></small>", unsafe_allow_html=True)
-                    st.metric(label="Recall (Up)", value=f"{recall_up:.2f}", delta_color="off")
-                    st.markdown(f"<small><i>It correctly identifies <b>{recall_up*100:.0f}%</b> of all actual 'Up' movements.</i></small>", unsafe_allow_html=True)
-                    st.metric(label="F1-Score (Up)", value=f"{f1_up:.2f}", delta_color="off")
-                    st.markdown(f"<small><i>Balance between precision and recall for 'Up' predictions.</i></small>", unsafe_allow_html=True)
-                    st.info(f"Actual 'Up' Movements: **{int(support_up)}**")
-
-                with col_down:
-                    st.markdown(f"<h5 style='color:#FF4500;'>📉 Downward Movement (Class 0)</h5>", unsafe_allow_html=True)
-                    st.metric(label="Precision (Down)", value=f"{precision_down:.2f}", delta_color="off")
-                    st.markdown(f"<small><i>When predicting 'Down', the model is correct <b>{precision_down*100:.0f}%</b> of the time.</i></small>", unsafe_allow_html=True)
-                    st.metric(label="Recall (Down)", value=f"{recall_down:.2f}", delta_color="off")
-                    st.markdown(f"<small><i>It correctly identifies <b>{recall_down*100:.0f}%</b> of all actual 'Down' movements.</i></small>", unsafe_allow_html=True)
-                    st.metric(label="F1-Score (Down)", value=f"{f1_down:.2f}", delta_color="off")
-                    st.markdown(f"<small><i>Balance between precision and recall for 'Down' predictions.</i></small>", unsafe_allow_html=True)
-                    st.info(f"Actual 'Down' Movements: **{int(support_down)}**")
-
-                st.markdown("---") # Separator for final conclusion
-
-                # Add a concluding remark based on performance with icons/emojis
-                st.markdown("<h6>Overall Model Health:</h6>", unsafe_allow_html=True)
-                if f1_up > 0.65 and f1_down > 0.65 and auc_score > 0.75:
-                    st.success("✨ **Excellent Performance!** This model demonstrates strong predictive power for both upward and downward movements, and it's highly capable of distinguishing between the two classes. Keep monitoring, but this looks promising.")
-                elif f1_up > 0.55 and f1_down > 0.55 and auc_score > 0.65:
-                    st.info("👍 **Good Performance.** The model provides reliable predictions, though there might be slight imbalances or areas for fine-tuning to achieve even higher confidence in specific scenarios. A solid foundation!")
-                elif (f1_up > 0.5 or f1_down > 0.5) and auc_score > 0.55:
-                    st.warning("⚠️ **Moderate Performance.** The model shows potential, but its ability to predict one class might be notably better than the other, or overall distinction needs improvement. Consider further feature engineering or model re-calibration.")
-                else:
-                    st.error("📉 **Limited Performance.** The model's predictive ability is currently low, struggling to accurately identify price movements. It is **highly recommended** to re-evaluate the features, data quality, or try different modeling approaches. **Do not rely on these predictions for decisions.**")
-
-            else:
-                st.warning("Classification report classes (0 or 1) not found. Cannot generate dynamic conclusion or detailed metrics.")
-
-
-        except ValueError as e:
-            st.warning(f"⚠️ Failed to generate classification report: {e}. Predictions may be biased toward one class.")
-
-        # ROC Curve
-        if y_test.nunique() > 1:
-            st.markdown("<h6>Receiver Operating Characteristic (ROC) Curve:</h6>", unsafe_allow_html=True)
-            fpr, tpr, thresholds = roc_curve(y_test, y_proba)
-            fig_roc = go.Figure()
-            fig_roc.add_trace(go.Scatter(x=fpr, y=tpr, mode='lines', name=f'ROC curve (AUC = {auc_score:.2f})'))
-            fig_roc.add_trace(
-                go.Scatter(x=[0, 1], y=[0, 1], mode='lines', name='Random Classifier', line=dict(dash='dash')))
-            fig_roc.update_layout(
-                title='ROC Curve',
-                xaxis_title='False Positive Rate',
-                yaxis_title='True Positive Rate',
-                template='plotly_dark',
-                showlegend=True,
-                height=400,
-                font=dict(family="Inter", size=12, color="#E0E0E0")
-            )
-            st.plotly_chart(fig_roc, use_container_width=True)
-
-    # Prediction for Next Day
-    st.markdown("<h5>Tomorrow's Prediction:</h5>", unsafe_allow_html=True)
-
-    last_data_point = df.iloc[-1]
-    if any(pd.isna(last_data_point[f]) for f in features):
-        st.warning(
-            "⚠️ Cannot predict: Latest data point has missing or invalid feature values. Ensure your data is up-to-date and complete.")
-        return
-
-    last_data_point_features = last_data_point[features].values.reshape(1, -1)
-    next_day_prediction = best_model.predict(last_data_point_features)[0]
-    next_day_proba_up = best_model.predict_proba(last_data_point_features)[0, 1]
-
-    # Enhanced Tomorrow's Prediction Widget
-    col_pred, col_proba = st.columns(2)
-    with col_pred:
-        prediction_text = "UP" if next_day_prediction == 1 else "DOWN"
-        prediction_emoji = "🟢" if next_day_prediction == 1 else "🔴"
-        st.metric(label="Predicted Movement for Tomorrow", value=f"{prediction_emoji} {prediction_text}")
-    with col_proba:
-        # Calculate delta based on deviation from 0.5 (neutral)
-        delta_value = (next_day_proba_up - 0.5) * 100
-        delta_color = "normal" if abs(delta_value) > 10 else "off" # Only show delta if it's significant
-
-        st.metric(
-            label="Probability of Price Going Up",
-            value=f"{next_day_proba_up:.2%}",
-            delta=f"{delta_value:.2f}% from 50%",
-            delta_color=delta_color
-        )
-    st.markdown(f"<small><i>The model indicates a {next_day_proba_up:.2%} chance of the price closing higher tomorrow.</i></small>", unsafe_allow_html=True)
-
-
-    # Feature Importance Visualization
-    st.markdown("<h5>Feature Importances:</h5>", unsafe_allow_html=True)
-    if hasattr(best_model, 'feature_importances_'):
-        feature_importances = pd.Series(best_model.feature_importances_, index=features).sort_values(ascending=False)
-
-        fig_importance = go.Figure(go.Bar(
-            x=feature_importances.values,
-            y=feature_importances.index,
-            orientation='h',
-            marker_color='skyblue'
-        ))
-        fig_importance.update_layout(
-            title='📊 Feature Importance in Prediction Model',
-            xaxis_title='Importance',
-            yaxis_title='Feature',
-            template='plotly_dark',
-            height=400,
-            font=dict(family="Inter", size=12, color="#E0E0E0")
-        )
-        st.plotly_chart(fig_importance, use_container_width=True)
-    else:
-        st.info("Feature importance is not available for the selected model type.")
-
-    # Recent Performance Visualization
-    st.markdown("<h5>Recent Model Performance (Probability vs. Actual):</h5>", unsafe_allow_html=True)
-
-    max_plot_points = 90  # Extended points for visualization
-    recent_data = df.tail(max_plot_points).copy()
-
-    if not recent_data.empty:
-        X_recent = recent_data[features]
-        # Ensure that X_recent has the same columns as X_train and in the same order
-        # This is crucial for consistent prediction
-        try:
-            y_recent_proba = best_model.predict_proba(X_recent)[:, 1]
-            y_recent_actual = recent_data['Target']
-
-            fig_proba = make_subplots(specs=[[{"secondary_y": True}]])
-            fig_proba.add_trace(
-                go.Scatter(x=recent_data.index, y=recent_data['Close'], name='Close Price', line=dict(color='cyan')),
-                secondary_y=False
-            )
-            fig_proba.add_trace(
-                go.Scatter(x=recent_data.index, y=y_recent_proba, name='Predicted Probability (Up)',
-                            line=dict(color='orange', dash='dot'), opacity=0.7),
-                secondary_y=True
-            )
-            # Add horizontal lines for common probability thresholds
-            fig_proba.add_hline(y=0.5, line_dash="dot", line_color="grey", secondary_y=True,
-                                 annotation_text="0.5 Threshold", annotation_position="top left")
-            fig_proba.add_hline(y=0.6, line_dash="dot", line_color="green", secondary_y=True,
-                                 annotation_text="0.6 Threshold", annotation_position="top right")
-
-            # Plot actual outcomes as markers
-            actual_up_dates = recent_data[y_recent_actual == 1].index
-            actual_down_dates = recent_data[y_recent_actual == 0].index
-
-            fig_proba.add_trace(
-                go.Scatter(
-                    x=actual_up_dates,
-                    y=[1] * len(actual_up_dates),  # Plot at high end of probability axis
-                    mode='markers',
-                    name='Actual Up',
-                    marker=dict(symbol='triangle-up', size=10, color='lime', line=dict(width=1, color='DarkSlateGrey'))
-                ),
-                secondary_y=True
-            )
-            fig_proba.add_trace(
-                go.Scatter(
-                    x=actual_down_dates,
-                    y=[0] * len(actual_down_dates),  # Plot at low end of probability axis
-                    mode='markers',
-                    name='Actual Down',
-                    marker=dict(symbol='triangle-down', size=10, color='red', line=dict(width=1, color='DarkSlateGrey'))
-                ),
-                secondary_y=True
-            )
-
-            fig_proba.update_layout(
-                title='📈 Recent Close Price vs. Predicted Up Probability & Actual Outcome',
-                xaxis_title='Date',
-                yaxis_title='Close Price',
-                template='plotly_dark',
-                height=600,
-                showlegend=True,
-                font=dict(family="Inter", size=12, color="#E0E0E0"),
-                hovermode="x unified"
-            )
-            fig_proba.update_yaxes(title_text="Probability/Actual Outcome", secondary_y=True,
-                                   range=[-0.1, 1.1])  # Extend range for markers
-            st.plotly_chart(fig_proba, use_container_width=True)
-        except Exception as e:
-            st.error(f"Error during recent performance visualization: {e}. Check data integrity or ensure enough data for prediction.")
-    else:
-        st.info("⚠️ Not enough recent data to visualize model performance.")
-
-    st.warning("""
-    **Disclaimer for Probabilistic Models:**
-    This model is for informational purposes only and is a simplified representation of complex market dynamics.
-    - **Accuracy:** Model accuracy is based on historical data and does not guarantee future performance. Cross-validation and hyperparameter tuning improve robustness but do not eliminate inherent market unpredictability.
-    - **Limitations:** It does not account for external events, news, macroeconomic factors, interest rate changes, company-specific announcements, or significant shifts in human investor behavior. The model assumes stationarity to some extent, which isn't always true in financial markets.
-    - **Risk:** Stock markets are inherently volatile and involve substantial risk. **Do not use this prediction for actual investment decisions.** Always conduct your own thorough research and consider consulting with a qualified financial advisor before making any investment choices.
-    """)
+# Legacy call (for compatibility)
+if 'hist_data' in locals():
+    display_probabilistic_models(hist_data)
