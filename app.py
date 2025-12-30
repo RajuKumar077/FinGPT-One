@@ -1,26 +1,156 @@
 import os
-import requests
-import pandas as pd
+import time
+import re
+from collections import Counter
+from datetime import datetime, timedelta
+
 import numpy as np
+import pandas as pd
+import requests
 import yfinance as yf
 import streamlit as st
 from dotenv import load_dotenv
 from textblob import TextBlob
 import plotly.express as px
-import time
-import re
-from collections import Counter
-from datetime import datetime, timedelta
-import json
 
-# --- 1. PAGE CONFIGURATION (MUST BE FIRST STREAMLIT CALL) ---
-st.set_page_config(page_title="FinGPT One - Pro", layout="wide", page_icon="📈")
 
-# --- 2. HYBRID SECRETS LOADING ---
+# =========================================================
+# 1. PAGE CONFIGURATION (MUST BE FIRST STREAMLIT CALL)
+# =========================================================
+st.set_page_config(
+    page_title="FinGPT One - Pro",
+    layout="wide",
+    page_icon="💎"
+)
+
+
+# =========================================================
+# 2. GLOBAL CSS – MODERN GLASSMORPHISM DARK UI
+# =========================================================
+CSS_STYLES = """
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+    :root {
+        --glass-bg: rgba(255, 255, 255, 0.03);
+        --glass-border: rgba(255, 255, 255, 0.08);
+        --accent-blue: #3B82F6;
+        --accent-purple: #8B5CF6;
+        --accent-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        --text-primary: #FFFFFF;
+        --text-secondary: rgba(255, 255, 255, 0.7);
+        --text-muted: rgba(255, 255, 255, 0.5);
+        --bg-dark: #1a1f3a;
+        --bg-card: rgba(30, 35, 58, 0.6);
+    }
+
+    .stApp {
+        background: linear-gradient(135deg, #1e2139 0%, #2d3561 50%, #1e2139 100%);
+        background-size: 200% 200%;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        color: var(--text-primary);
+        animation: gradientFlow 20s ease infinite;
+    }
+
+    @keyframes gradientFlow {
+        0%, 100% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+    }
+
+    /* Force consistent text colors */
+    .stApp *, .stMarkdown, .stMarkdown *, div, span, p, h1, h2, h3, h4, h5, h6, label {
+        color: var(--text-primary) !important;
+    }
+
+    /* Sidebar */
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #1a1f3a 0%, #151829 100%) !important;
+        border-right: 1px solid rgba(255, 255, 255, 0.1) !important;
+    }
+
+    [data-testid="stSidebar"] > div {
+        background: transparent !important;
+        padding-top: 2rem !important;
+    }
+
+    [data-testid="stSidebar"] h1 {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        font-weight: 800 !important;
+        font-size: 1.8rem !important;
+        margin-bottom: 2rem !important;
+        letter-spacing: -0.5px;
+    }
+
+    /* Headings */
+    h1 {
+        font-weight: 800 !important;
+        font-size: 2.5rem !important;
+        margin: 1.5rem 0 2rem 0 !important;
+        letter-spacing: -1px;
+        line-height: 1.2 !important;
+    }
+
+    h2 {
+        font-weight: 700 !important;
+        font-size: 1.8rem !important;
+        margin: 2rem 0 1.5rem 0 !important;
+        letter-spacing: -0.5px;
+    }
+
+    h3 {
+        font-weight: 600 !important;
+        font-size: 1.4rem !important;
+        margin: 1.5rem 0 1rem 0 !important;
+    }
+
+    h4 {
+        color: var(--text-secondary) !important;
+        font-weight: 600 !important;
+        font-size: 1.1rem !important;
+    }
+
+    /* Header action icons - force white */
+    [data-testid="stHeaderActionElements"],
+    [data-testid="stHeaderActionElements"] *,
+    [data-testid="stHeaderActionElements"] button,
+    [data-testid="stHeaderActionElements"] svg,
+    [data-testid="stHeaderActionElements"] a {
+        color: white !important;
+        fill: white !important;
+        stroke: white !important;
+    }
+
+    [data-testid="stHeaderActionElements"] a:hover {
+        background: rgba(255, 255, 255, 0.1) !important;
+        border-radius: 4px !important;
+    }
+
+    /* Card-like containers */
+    .glass-card {
+        background: var(--bg-card);
+        border-radius: 16px;
+        border: 1px solid var(--glass-border);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+        padding: 1.2rem 1.4rem;
+        margin-bottom: 1.2rem;
+    }
+</style>
+"""
+
+st.markdown(CSS_STYLES, unsafe_allow_html=True)
+
+
+# =========================================================
+# 3. LOAD ENV / SECRETS
+# =========================================================
 load_dotenv()
 
-def get_secret(key_name):
-    """Safely fetch secrets from Streamlit Cloud or local .env without crashing."""
+
+def get_secret(key_name: str):
+    """Fetch secret from Streamlit Cloud or .env without crashing."""
     try:
         if key_name in st.secrets:
             return st.secrets[key_name]
@@ -28,14 +158,17 @@ def get_secret(key_name):
         pass
     return os.getenv(key_name)
 
-# --- 3. API KEYS ---
+
 TIINGO_API_KEY = get_secret("TIINGO_API_KEY")
 FMP_API_KEY = get_secret("FMP_API_KEY")
 ALPHA_VANTAGE_API_KEY = get_secret("ALPHA_VANTAGE_API_KEY")
 GEMINI_API_KEY = get_secret("GEMINI_API_KEY")
 NEWS_API_KEY = get_secret("NEWS_API_KEY")
 
-# --- 4. COMPONENT IMPORTS ---
+
+# =========================================================
+# 4. COMPONENT IMPORTS
+# =========================================================
 try:
     from Components.stock_summary import display_stock_summary
     from Components.probabilistic_stock_model import display_probabilistic_models
@@ -44,104 +177,169 @@ try:
 except ImportError as e:
     st.error(f"⚠️ Component Import Error: {e}")
 
-# --- 5. THE DATA ENGINE (PRIORITIZED FOR REAL DATA) ---
+
+# =========================================================
+# 5. DATA ENGINE – MULTI-LAYER FAILOVER
+# =========================================================
 @st.cache_data(ttl=3600, show_spinner=False)
-def fetch_stock_data(symbol):
-    """Multi-layer failover data engine - yfinance first for reliability."""
+def fetch_stock_data(symbol: str):
+    """
+    Multi-layer failover:
+    1. yfinance
+    2. Tiingo
+    3. Alpha Vantage
+    4. FMP
+    5. Synthetic sample (dev-mode)
+    """
     symbol = symbol.strip().upper()
-    
-    # LAYER 1: YFINANCE (PRIMARY - FREE & RELIABLE, NO KEY NEEDED)
+
+    # ---------- LAYER 1: YFINANCE ----------
+    periods_to_try = ["1y", "2y", "5y"]
+    for period in periods_to_try:
+        try:
+            ticker_obj = yf.Ticker(symbol)
+            df = ticker_obj.history(period=period, auto_adjust=True, prepost=False)
+            if not df.empty and len(df) > 50:
+                df.index = df.index.date
+                df = df[["Open", "High", "Low", "Close", "Volume"]]
+                return df, f"Yahoo Finance (Real Market Data - {period})"
+        except Exception:
+            continue
+
+    # Try "max" if above periods fail
     try:
         ticker_obj = yf.Ticker(symbol)
-        df = ticker_obj.history(period="5y", auto_adjust=True, prepost=False)
+        df = ticker_obj.history(period="max", auto_adjust=True, prepost=False)
         if not df.empty and len(df) > 50:
-            df.index = df.index.date  # Normalize index to date
-            df = df[['Open', 'High', 'Low', 'Close', 'Volume']]  # Standard columns
-            return df, "Yahoo Finance (Real Market Data)"
-        else:
-            pass  # Silent fail, proceed to next
-    except Exception as e:
-        pass  # Silent fail, proceed to next
+            df = df.tail(1256)
+            df.index = df.index.date
+            df = df[["Open", "High", "Low", "Close", "Volume"]]
+            return df, "Yahoo Finance (Real Market Data - Max, trimmed)"
+    except Exception:
+        pass
 
-    # LAYER 2: TIINGO (IF KEY PROVIDED)
+    # ---------- LAYER 2: TIINGO ----------
     if TIINGO_API_KEY and TIINGO_API_KEY != "your_tiingo_code_here":
         try:
-            url = f"https://api.tiingo.com/tiingo/daily/{symbol}/prices?token={TIINGO_API_KEY}&startDate=2019-01-01&resampleFreq=daily"
+            end_date = datetime.now().strftime("%Y-%m-%d")
+            start_date = (datetime.now() - timedelta(days=1825)).strftime("%Y-%m-%d")
+            url = (
+                f"https://api.tiingo.com/tiingo/daily/{symbol}/prices?"
+                f"token={TIINGO_API_KEY}&startDate={start_date}&endDate={end_date}&resampleFreq=daily"
+            )
             res = requests.get(url, timeout=10).json()
             if isinstance(res, list) and len(res) > 50:
                 df = pd.DataFrame(res)
-                df['date'] = pd.to_datetime(df['date']).dt.date
-                df = df.rename(columns={'adjClose': 'Close', 'adjHigh': 'High', 'adjLow': 'Low', 'adjOpen': 'Open', 'adjVolume': 'Volume'})
-                df = df.set_index('date').sort_index()
-                if len(df) >= 252:
-                    return df, "Tiingo Institutional (Real Market Data)"
-        except Exception as e:
-            pass  # Silent fail
+                df["date"] = pd.to_datetime(df["date"]).dt.date
+                df = df.rename(
+                    columns={
+                        "adjClose": "Close",
+                        "adjHigh": "High",
+                        "adjLow": "Low",
+                        "adjOpen": "Open",
+                        "adjVolume": "Volume",
+                    }
+                )
+                df = df.set_index("date").sort_index()
+                df = df[["Open", "High", "Low", "Close", "Volume"]]
+                return df, "Tiingo Institutional (Real Market Data)"
+        except Exception:
+            pass
 
-    # LAYER 3: ALPHA VANTAGE (IF KEY PROVIDED)
+    # ---------- LAYER 3: ALPHA VANTAGE ----------
     if ALPHA_VANTAGE_API_KEY and ALPHA_VANTAGE_API_KEY != "YOUR_ALPHA_VANTAGE_API_KEY":
         try:
-            url = f'https://www.alphavantage.co/query?function=TIME_SERIES_DAILY_ADJUSTED&symbol={symbol}&outputsize=full&apikey={ALPHA_VANTAGE_API_KEY}'
+            url = (
+                "https://www.alphavantage.co/query?"
+                f"function=TIME_SERIES_DAILY_ADJUSTED&symbol={symbol}&outputsize=full&apikey={ALPHA_VANTAGE_API_KEY}"
+            )
             data = requests.get(url, timeout=10).json()
-            if "Time Series (Daily)" in data and len(data["Time Series (Daily)"]) > 50:
-                df = pd.DataFrame.from_dict(data["Time Series (Daily)"], orient='index')
+            ts = data.get("Time Series (Daily)")
+            if ts and len(ts) > 50:
+                df = pd.DataFrame.from_dict(ts, orient="index")
                 df.index = pd.to_datetime(df.index).date
-                df = df.rename(columns={
-                    "1. open": "Open", "2. high": "High", "3. low": "Low", 
-                    "4. close": "Close", "5. adjusted close": "Close", "6. volume": "Volume"
-                }).astype(float)
-                df = df[['Open', 'High', 'Low', 'Close', 'Volume']].sort_index()
+                df = df.rename(
+                    columns={
+                        "1. open": "Open",
+                        "2. high": "High",
+                        "3. low": "Low",
+                        "4. close": "Close",
+                        "5. adjusted close": "Close",
+                        "6. volume": "Volume",
+                    }
+                ).astype(float)
+                df = df[["Open", "High", "Low", "Close", "Volume"]].sort_index()
+                df = df.tail(1256)
                 return df, "Alpha Vantage (Real Market Data)"
-        except Exception as e:
-            pass  # Silent fail
+        except Exception:
+            pass
 
-    # LAYER 4: FMP (IF KEY PROVIDED, AS FALLBACK)
+    # ---------- LAYER 4: FMP ----------
     if FMP_API_KEY and FMP_API_KEY != "YOUR_FMP_KEY":
         try:
-            url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{symbol}?from=2019-01-01&to={datetime.now().strftime('%Y-%m-%d')}&apikey={FMP_API_KEY}"
+            end_date = datetime.now().strftime("%Y-%m-%d")
+            start_date = (datetime.now() - timedelta(days=1825)).strftime("%Y-%m-%d")
+            url = (
+                f"https://financialmodelingprep.com/api/v3/historical-price-full/"
+                f"{symbol}?from={start_date}&to={end_date}&apikey={FMP_API_KEY}"
+            )
             res = requests.get(url, timeout=10).json()
-            if 'historical' in res and len(res['historical']) > 50:
-                df = pd.DataFrame(res['historical'])
-                df['date'] = pd.to_datetime(df['date']).dt.date
-                df = df.rename(columns={'ohlc': 'Close', 'open': 'Open', 'high': 'High', 'low': 'Low', 'volume': 'Volume'})
-                df = df.set_index('date').sort_index()
+            if isinstance(res, dict) and "historical" in res and len(res["historical"]) > 50:
+                df = pd.DataFrame(res["historical"])
+                df["date"] = pd.to_datetime(df["date"]).dt.date
+                df = df.rename(
+                    columns={
+                        "open": "Open",
+                        "high": "High",
+                        "low": "Low",
+                        "close": "Close",
+                        "volume": "Volume",
+                    }
+                )
+                df = df.set_index("date").sort_index()
+                df = df[["Open", "High", "Low", "Close", "Volume"]]
                 return df, "Financial Modeling Prep (Real Market Data)"
-        except Exception as e:
-            pass  # Silent fail
+        except Exception:
+            pass
 
-    # FINAL FALLBACK: SAMPLE DATA (ONLY IF ALL REAL SOURCES FAIL)
+    # ---------- FINAL FALLBACK: SYNTHETIC SAMPLE DATA ----------
     try:
-        # Generate realistic sample data (as before, but with warning)
-        trading_days = 1256  # ~5 years
-        start_date = datetime.now() - timedelta(days=trading_days * 2)
+        trading_days = 1256
+        start_date = datetime.now() - timedelta(days=int(trading_days * 1.5))
         dates = pd.bdate_range(start=start_date, periods=trading_days)
-        
-        np.random.seed(abs(hash(symbol)) % 10000)
+
+        np.random.seed(abs(hash(symbol)) % (2**32))
         initial_price = 50.0 + (abs(hash(symbol)) % 200)
-        
+
         prices = []
         current_price = initial_price
-        for i in range(trading_days):
+        for _ in range(trading_days):
             daily_return = np.random.normal(0.0005, 0.02)
-            current_price = current_price * (1 + daily_return)
+            current_price *= 1 + daily_return
             prices.append(max(current_price, 1.0))
-        
-        df = pd.DataFrame({
-            'Open': prices,
-            'High': [p * (1 + abs(np.random.normal(0, 0.005))) for p in prices],
-            'Low': [p * (1 - abs(np.random.normal(0, 0.005))) for p in prices],
-            'Close': prices,
-            'Volume': np.random.randint(1000000, 50000000, trading_days)
-        }, index=dates)
-        
-        df.index = df.index.date
+
+        df = pd.DataFrame(
+            {
+                "Open": prices,
+                "High": [p * (1 + abs(np.random.normal(0, 0.005))) for p in prices],
+                "Low": [p * (1 - abs(np.random.normal(0, 0.005))) for p in prices],
+                "Close": prices,
+                "Volume": np.random.randint(1_000_000, 50_000_000, trading_days),
+            },
+            index=dates.date,
+        )
+
         return df, "Sample Data (Testing Mode - Check API Keys!)"
-    except Exception as e:
+    except Exception:
         return pd.DataFrame(), None
 
-# --- 6. NEWS SENTIMENT FUNCTIONS (UNCHANGED) ---
+
+# =========================================================
+# 6. NEWS & SENTIMENT UTILITIES
+# =========================================================
 @st.cache_data(ttl=3600, show_spinner=False)
-def fetch_news_articles(query, news_api_key, total_articles=50, retries=3, initial_delay=0.5):
+def fetch_news_articles(query: str, news_api_key: str, total_articles: int = 50,
+                        retries: int = 3, initial_delay: float = 0.5):
     if not news_api_key or news_api_key == "YOUR_NEWSAPI_KEY":
         st.error("❌ Invalid or missing NewsAPI key.")
         return []
@@ -149,12 +347,13 @@ def fetch_news_articles(query, news_api_key, total_articles=50, retries=3, initi
     articles = []
     page = 1
     page_size = min(20, total_articles)
-    from_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+    from_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
 
     while len(articles) < total_articles and page <= (total_articles // page_size) + 1:
         url = (
-            f"https://newsapi.org/v2/everything?q={query}&language=en"
-            f"&sortBy=relevancy&pageSize={min(page_size, total_articles - len(articles))}"
+            "https://newsapi.org/v2/everything?"
+            f"q={query}&language=en&sortBy=relevancy&pageSize="
+            f"{min(page_size, total_articles - len(articles))}"
             f"&page={page}&from={from_date}&apiKey={news_api_key}"
         )
         for attempt in range(retries + 1):
@@ -176,11 +375,14 @@ def fetch_news_articles(query, news_api_key, total_articles=50, retries=3, initi
                     return []
     return articles[:total_articles]
 
+
 @st.cache_data(ttl=86400, show_spinner=False)
-def get_company_name_from_ticker(ticker, fmp_api_key, retries=3, initial_delay=0.5):
+def get_company_name_from_ticker(ticker: str, fmp_api_key: str,
+                                 retries: int = 3, initial_delay: float = 0.5) -> str:
     if not fmp_api_key or fmp_api_key == "YOUR_FMP_KEY":
-        st.warning("⚠️ FMP API key missing. Using ticker.")
+        st.warning("⚠️ FMP API key missing. Using ticker as company name.")
         return ticker
+
     url = f"https://financialmodelingprep.com/api/v3/profile/{ticker}?apikey={fmp_api_key}"
     for attempt in range(retries + 1):
         try:
@@ -189,8 +391,8 @@ def get_company_name_from_ticker(ticker, fmp_api_key, retries=3, initial_delay=0
             response = requests.get(url, timeout=20)
             response.raise_for_status()
             data = response.json()
-            if data and isinstance(data, list) and data[0]:
-                return data[0].get('companyName', ticker)
+            if data and isinstance(data, list) and len(data) > 0 and data[0]:
+                return data[0].get("companyName", ticker)
             return ticker
         except Exception as e:
             if attempt == retries:
@@ -198,18 +400,27 @@ def get_company_name_from_ticker(ticker, fmp_api_key, retries=3, initial_delay=0
                 return ticker
     return ticker
 
-def analyze_sentiment(text):
+
+def analyze_sentiment(text: str) -> float:
     if not text or not text.strip():
         return 0.0
     return TextBlob(text).sentiment.polarity
 
+
 def generate_sentiment_summary(sentiments):
     if not sentiments:
         return "No sentiment data available."
-    tags = ['Positive' if s > 0.05 else 'Negative' if s < -0.05 else 'Neutral' for s in sentiments]
+    tags = [
+        "Positive" if s > 0.05 else "Negative" if s < -0.05 else "Neutral"
+        for s in sentiments
+    ]
     count = Counter(tags)
-    avg_sent = np.mean(sentiments)
-    trend = "🟢 Positive" if avg_sent > 0.05 else "🔴 Negative" if avg_sent < -0.05 else "⚪ Neutral"
+    avg_sent = float(np.mean(sentiments))
+    trend = (
+        "🟢 Positive" if avg_sent > 0.05
+        else "🔴 Negative" if avg_sent < -0.05
+        else "⚪ Neutral"
+    )
     summary = (
         f"Out of **{len(sentiments)}** articles:\n"
         f"- ✅ {count.get('Positive', 0)} Positive\n"
@@ -219,55 +430,98 @@ def generate_sentiment_summary(sentiments):
     )
     return summary
 
+
 def create_sentiment_timeline(sentiments, dates):
     if not sentiments or not dates or len(sentiments) != len(dates):
         return None
-    df = pd.DataFrame({
-        'Date': pd.to_datetime(dates),
-        'Sentiment': sentiments,
-        'Color': ['🟢 Positive' if s > 0.05 else '🔴 Negative' if s < -0.05 else '⚪ Neutral' for s in sentiments]
-    })
-    fig = px.scatter(df, x='Date', y='Sentiment', color='Color',
-                     color_discrete_map={'🟢 Positive': 'limegreen', '🔴 Negative': 'tomato', '⚪ Neutral': 'lightgray'},
-                     title="📈 Sentiment Timeline", hover_data={'Sentiment': ':.3f'})
+    df = pd.DataFrame(
+        {
+            "Date": pd.to_datetime(dates),
+            "Sentiment": sentiments,
+            "Color": [
+                "🟢 Positive" if s > 0.05 else "🔴 Negative" if s < -0.05 else "⚪ Neutral"
+                for s in sentiments
+            ],
+        }
+    )
+    fig = px.scatter(
+        df,
+        x="Date",
+        y="Sentiment",
+        color="Color",
+        color_discrete_map={
+            "🟢 Positive": "limegreen",
+            "🔴 Negative": "tomato",
+            "⚪ Neutral": "lightgray",
+        },
+        title="📈 Sentiment Timeline",
+        hover_data={"Sentiment": ":.3f"},
+    )
     fig.add_hline(y=0, line_dash="dash", line_color="white")
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="white"),
+    )
     return fig
 
+
 def create_word_cloud_data(articles):
-    all_text = " ".join(article.get('description', '') or article.get('content', '') for article in articles)
+    all_text = " ".join(
+        article.get("description", "") or article.get("content", "")
+        for article in articles
+    )
     if not all_text.strip():
         return []
-    words = re.findall(r'\b[a-zA-Z]{3,}\b', all_text.lower())
-    stop_words = set(["the","and","for","with","that","this","from","your","have","are","will","its","their","you"])
+    words = re.findall(r"\b[a-zA-Z]{3,}\b", all_text.lower())
+    stop_words = {
+        "the", "and", "for", "with", "that", "this", "from",
+        "your", "have", "are", "will", "its", "their", "you",
+    }
     words = [w for w in words if w not in stop_words]
     return Counter(words).most_common(20)
 
-def display_news_sentiment(ticker, news_api_key, fmp_api_key):
+
+def display_news_sentiment(ticker: str, news_api_key: str, fmp_api_key: str):
     if not ticker:
         st.error("❌ Invalid ticker.")
         return
     ticker = ticker.strip().upper()
-    st.markdown(f"<h3>📰 News Sentiment for {ticker}</h3>", unsafe_allow_html=True)
-    num_articles = st.slider("Number of articles to analyze", 10, 100, 30, step=10, key=f"news_{ticker}")
+
+    st.markdown(
+        f"<h3>📰 News Sentiment for {ticker}</h3>",
+        unsafe_allow_html=True,
+    )
+
+    num_articles = st.slider(
+        "Number of articles to analyze",
+        10,
+        100,
+        30,
+        step=10,
+        key=f"news_{ticker}",
+    )
+
     company_name = get_company_name_from_ticker(ticker, fmp_api_key)
     query = f'"{company_name}" OR "{ticker}"'
     articles = fetch_news_articles(query, news_api_key, total_articles=num_articles)
+
     if not articles:
         st.info("No news found.")
         return
 
     sentiments, dates, sources, urls, titles = [], [], [], [], []
     for article in articles:
-        text = article.get('description', '') or article.get('content', '')
+        text = article.get("description", "") or article.get("content", "")
         if not text.strip():
             continue
         sentiments.append(analyze_sentiment(text))
-        titles.append(article.get('title', 'No Title'))
-        sources.append(article.get('source', {}).get('name', 'Unknown'))
-        urls.append(article.get('url', '#'))
+        titles.append(article.get("title", "No Title"))
+        sources.append(article.get("source", {}).get("name", "Unknown"))
+        urls.append(article.get("url", "#"))
         try:
-            dates.append(pd.to_datetime(article.get('publishedAt', datetime.now())))
-        except:
+            dates.append(pd.to_datetime(article.get("publishedAt", datetime.now())))
+        except Exception:
             dates.append(datetime.now())
 
     if not sentiments:
@@ -275,6 +529,7 @@ def display_news_sentiment(ticker, news_api_key, fmp_api_key):
         return
 
     st.markdown(generate_sentiment_summary(sentiments))
+
     timeline_fig = create_sentiment_timeline(sentiments, dates)
     if timeline_fig:
         st.plotly_chart(timeline_fig, use_container_width=True)
@@ -282,39 +537,67 @@ def display_news_sentiment(ticker, news_api_key, fmp_api_key):
     word_freq = create_word_cloud_data(articles)
     if word_freq:
         st.markdown("### 🔑 Most Mentioned Keywords")
-        st.dataframe(pd.DataFrame(word_freq, columns=['Keyword','Frequency']), use_container_width=True)
+        st.dataframe(
+            pd.DataFrame(word_freq, columns=["Keyword", "Frequency"]),
+            use_container_width=True,
+        )
 
     st.markdown("### 📋 Latest Articles")
     for t, s, src, url, d in zip(titles, sentiments, sources, urls, dates):
         label = "Positive" if s > 0.05 else "Negative" if s < -0.05 else "Neutral"
-        color_map = {'Positive':'limegreen','Negative':'tomato','Neutral':'lightgray'}
-        icon_map = {'Positive':'🟢','Negative':'🔴','Neutral':'⚪'}
-        date_str = d.strftime('%Y-%m-%d') if isinstance(d, datetime) else 'N/A'
-        st.markdown(f"""
-        <div style="border: 2px solid {color_map[label]}; padding:10px; border-radius:8px; margin-bottom:8px;">
-        <h4>{icon_map[label]} {label} Sentiment ({s:.3f})</h4>
-        <a href="{url}" target="_blank">📰 {t}</a><br>
-        <small>📺 {src} | 📅 {date_str}</small>
-        </div>
-        """, unsafe_allow_html=True)
+        color_map = {
+            "Positive": "#10B981",
+            "Negative": "#EF4444",
+            "Neutral": "#6B7280",
+        }
+        icon_map = {"Positive": "🟢", "Negative": "🔴", "Neutral": "⚪"}
+        date_str = d.strftime("%Y-%m-%d") if isinstance(d, datetime) else "N/A"
 
-    st.warning("⚠️ Disclaimer: News sentiment is for informational purposes only. Do NOT use for investment decisions.")
+        st.markdown(
+            f"""
+            <div class="glass-card" style="border: 2px solid {color_map[label]};">
+                <h4 style="margin: 0 0 0.5rem 0;">
+                    {icon_map[label]} {label} Sentiment ({s:.3f})
+                </h4>
+                <a href="{url}" target="_blank"
+                   style="color: var(--accent-blue); text-decoration: none; font-weight: 600;">
+                    📰 {t}
+                </a><br>
+                <small style="color: var(--text-secondary);">
+                    📺 {src} | 📅 {date_str}
+                </small>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-# --- TICKER AUTO-COMPLETION (UNCHANGED) ---
+    st.warning(
+        "⚠️ Disclaimer: News sentiment is for informational purposes only. "
+        "Do NOT use for investment decisions."
+    )
+
+
+# =========================================================
+# 7. TICKER AUTOCOMPLETE (ALPHA VANTAGE + POPULAR LIST)
+# =========================================================
+POPULAR_TICKERS = [
+    "AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "META", "NVDA", "BRK-B", "JPM", "V",
+    "UNH", "MA", "PG", "HD", "JNJ", "AVGO", "XOM", "CVX", "KO", "PEP", "COST",
+    "MRK", "ABBV", "WMT", "CRM", "TMO", "ACN", "DHR", "NFLX", "ADBE", "TXN",
+    "ABT", "WFC", "QCOM", "NKE", "PM", "CSCO", "INTC", "PFE", "ORCL", "AMGN",
+    "DIS", "VZ", "T", "BMY", "GILD", "SBUX", "MDT", "HON", "UPS", "LMT", "NEE",
+    "RTX", "UNP", "CAT", "GE", "LOW", "SPGI", "AXP", "GS", "MS", "BAC",
+]
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
-def fetch_ticker_suggestions(query: str, api_key: str, retries: int = 5, initial_delay: float = 1.0) -> list:
-    """
-    Fetch stock ticker suggestions using Alpha Vantage's Symbol Search Endpoint.
-    """
+def fetch_ticker_suggestions(query: str, api_key: str,
+                             retries: int = 5, initial_delay: float = 1.0) -> list:
     if not query or not api_key or api_key == "YOUR_ALPHA_VANTAGE_API_KEY":
         return []
 
     base_url = "https://www.alphavantage.co/query"
-    params = {
-        "function": "SYMBOL_SEARCH",
-        "keywords": query.strip(),
-        "apikey": api_key
-    }
+    params = {"function": "SYMBOL_SEARCH", "keywords": query.strip(), "apikey": api_key}
 
     for attempt in range(retries):
         try:
@@ -330,130 +613,136 @@ def fetch_ticker_suggestions(query: str, api_key: str, retries: int = 5, initial
 
             if "Error Message" in data:
                 return []
-            elif "Information" in data and "premium endpoint" in data["Information"].lower():
+            if "Information" in data and "premium endpoint" in str(data["Information"]).lower():
                 return []
 
             best_matches = data.get("bestMatches", [])
             suggestions = [
-                f"{item.get('1. symbol')} - {item.get('2. name', 'Unknown')} ({item.get('4. region', 'Unknown')})"
-                for item in best_matches
-                if item.get("1. symbol") and item.get("2. name")
+                f"{item.get('1. symbol', '')} - {item.get('2. name', 'Unknown')} "
+                f"({item.get('4. region', 'Unknown')})"
+                for item in best_matches[:10]
+                if item.get("1. symbol")
             ]
-            return suggestions
-
+            return [s for s in suggestions if s]
         except Exception:
             continue
 
     return []
 
-POPULAR_TICKERS = [
-    'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'META', 'NVDA', 'BRK-B', 'JPM', 'V',
-    'UNH', 'MA', 'PG', 'HD', 'JNJ', 'AVGO', 'XOM', 'CVX', 'KO', 'PEP', 'COST',
-    'MRK', 'ABBV', 'WMT', 'CRM', 'TMO', 'ACN', 'DHR', 'NFLX', 'ADBE', 'TXN',
-    'ABT', 'WFC', 'QCOM', 'NKE', 'PM', 'CSCO', 'INTC', 'PFE', 'ORCL', 'AMGN',
-    'DIS', 'VZ', 'T', 'BMY', 'GILD', 'SBUX', 'MDT', 'HON', 'UPS', 'LMT', 'NEE',
-    'RTX', 'UNP', 'CAT', 'GE', 'LOW', 'SPGI', 'AXP', 'GS', 'MS', 'BAC'
-]
 
 @st.cache_data(ttl=300, show_spinner=False)
-def search_tickers(search_term, api_key):
-    """Search for tickers using Alpha Vantage API or fallback to popular list."""
+def search_tickers(search_term: str, api_key: str):
     search_term = search_term.strip().upper()
     if len(search_term) < 1:
         return []
-    
-    # Primary: Use Alpha Vantage for dynamic suggestions
+
     suggestions = fetch_ticker_suggestions(search_term, api_key)
     if suggestions:
-        # Extract just symbols for selection
-        symbols = [s.split(' - ')[0] for s in suggestions]
-        return symbols
-    
-    # Fallback to popular tickers filter
-    return [ticker for ticker in POPULAR_TICKERS if search_term in ticker]
+        symbols = [s.split(" - ")[0] for s in suggestions if " - " in s]
+        return symbols[:10]
 
-# --- 7. MAIN INTERFACE (UNCHANGED) ---
+    return [ticker for ticker in POPULAR_TICKERS if search_term in ticker][:10]
+
+
+# =========================================================
+# 8. MAIN APP
+# =========================================================
 def main():
+    # ---------- SIDEBAR ----------
     st.sidebar.title("💎 FinGPT One")
-    
-    # Initialize session state for ticker input
-    if 'ticker_input' not in st.session_state:
+
+    # Initialize ticker state
+    if "ticker_input" not in st.session_state:
         st.session_state.ticker_input = "AAPL"
-    
-    # Auto-completion logic
+
     def update_ticker_from_input():
-        st.session_state.ticker_input = st.session_state.temp_ticker_input.upper().strip()
-    
+        new_value = st.session_state.temp_ticker_input.upper().strip()
+        if new_value:
+            st.session_state.ticker_input = new_value
+
     def update_ticker_from_suggestion():
         st.session_state.ticker_input = st.session_state.suggestion_select.upper().strip()
-        # Clear the temp input to reflect the change
         st.session_state.temp_ticker_input = st.session_state.ticker_input
-    
+
     # Text input for ticker
     st.sidebar.text_input(
-        "Enter Ticker:", 
-        value=st.session_state.ticker_input, 
-        key="temp_ticker_input", 
+        "Enter Ticker:",
+        value=st.session_state.ticker_input,
+        key="temp_ticker_input",
         on_change=update_ticker_from_input,
-        help="Type a ticker symbol (e.g., AAPL) for auto-suggestions"
+        help="Type a ticker symbol (e.g., AAPL) for auto-suggestions",
     )
-    
+
     query = st.session_state.ticker_input
-    
-    # Show suggestions if query is long enough
+
+    # Suggestions
     if len(query) >= 2:
         suggestions = search_tickers(query, ALPHA_VANTAGE_API_KEY)
         if suggestions:
             st.sidebar.markdown("### 🔍 Suggestions:")
-            selected_suggestion = st.sidebar.selectbox(
+            st.sidebar.selectbox(
                 "Pick a ticker:",
                 options=suggestions,
-                index=0 if query in suggestions else None,
+                index=0 if query.upper() in [s.upper() for s in suggestions] else 0,
                 key="suggestion_select",
                 on_change=update_ticker_from_suggestion,
-                help="Select to auto-fill the ticker"
+                help="Select to auto-fill the ticker",
             )
-            # Update query immediately after selection
-            if 'suggestion_select' in st.session_state:
-                query = st.session_state.ticker_input
-    
-    # Display current query
+            query = st.session_state.ticker_input
+
     st.sidebar.markdown(f"**Selected: `{query}`**")
-    
-    # Dashboard Navigation
-    page = st.sidebar.radio("Dashboard Navigation", [
-        "Stock Summary", "Forecasting", "Probabilistic Models", "Financials", "News Sentiment"
-    ])
 
-    if query:
-        if page != "News Sentiment":
-            # Fetch stock data only if needed
-            if 'data' not in st.session_state or st.session_state.get('last_ticker') != query:
-                with st.spinner(f"Connecting to Markets for {query}..."):
-                    df, src = fetch_stock_data(query)
-                    st.session_state.data = df
-                    st.session_state.source = src
-                    st.session_state.last_ticker = query
+    # Navigation
+    page = st.sidebar.radio(
+        "Dashboard Navigation",
+        ["Stock Summary", "Forecasting", "Probabilistic Models", "Financials", "News Sentiment"],
+    )
 
-            hist_data = st.session_state.data
-            source = st.session_state.source
+    # ---------- MAIN AREA ----------
+    if not query:
+        st.error("❌ Please enter a valid ticker symbol.")
+        return
 
-            if not hist_data.empty:
-                # Removed: st.sidebar.info(f"✅ Connected via {source}")
-                
-                if page == "Stock Summary":
-                    display_stock_summary(query, hist_data, FMP_API_KEY, ALPHA_VANTAGE_API_KEY, GEMINI_API_KEY)
-                elif page == "Forecasting":
-                    display_forecasting(hist_data, query)
-                elif page == "Probabilistic Models":
-                    display_probabilistic_models(hist_data)
-                elif page == "Financials":
-                    display_financials(query, TIINGO_API_KEY)
+    # News Sentiment does not need price history
+    if page == "News Sentiment":
+        display_news_sentiment(query, NEWS_API_KEY, FMP_API_KEY)
+        return
+
+    # For all other pages, fetch historical data
+    if "data" not in st.session_state or st.session_state.get("last_ticker") != query:
+        with st.spinner(f"Connecting to Markets for {query}..."):
+            df, src = fetch_stock_data(query)
+            if df.empty:
+                st.error(
+                    f"❌ No data available for {query}. It may be delisted or temporarily "
+                    "unavailable. Try another ticker."
+                )
+                st.session_state.data = pd.DataFrame()
+                st.session_state.source = None
+                st.session_state.last_ticker = query
             else:
-                st.error(f"❌ Could not find data for {query}. Please check the ticker symbol.")
-        else:
-            # News Sentiment Page
-            display_news_sentiment(query, NEWS_API_KEY, FMP_API_KEY)
+                st.session_state.data = df
+                st.session_state.source = src
+                st.session_state.last_ticker = query
+                st.success(f"✅ Data loaded from {src}")
+
+    hist_data = st.session_state.get("data", pd.DataFrame())
+    source = st.session_state.get("source", None)
+
+    if hist_data.empty:
+        st.error(f"❌ Could not find data for {query}. Please check the ticker symbol.")
+        return
+
+    # Route to page
+    if page == "Stock Summary":
+        display_stock_summary(query, hist_data, FMP_API_KEY, ALPHA_VANTAGE_API_KEY, GEMINI_API_KEY)
+    elif page == "Forecasting":
+        display_forecasting(hist_data, query)
+    elif page == "Probabilistic Models":
+        display_probabilistic_models(hist_data)
+    elif page == "Financials":
+        display_financials(query, TIINGO_API_KEY)
+
 
 if __name__ == "__main__":
     main()
