@@ -407,7 +407,6 @@ def display_financials(ticker, api_key):
     ratios = calculate_financial_ratios(df)
     latest = df.iloc[-1]
     
-    # === EXECUTIVE SUMMARY ===
     st.markdown("### 🎯 Executive Summary")
     
     col1, col2, col3, col4, col5 = st.columns(5)
@@ -455,7 +454,6 @@ def display_financials(ticker, api_key):
     
     st.markdown("---")
     
-    # === TABS FOR DETAILED ANALYSIS ===
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📊 Performance", "💰 Profitability", "⚖️ Balance Sheet", 
         "💸 Cash Flow", "📈 Growth", "🔢 Detailed Data"

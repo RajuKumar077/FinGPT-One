@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 
 def display_stock_summary(ticker, data, fmp_key, alpha_key, gemini_key):
-    """🚀 Enhanced Stock Summary - 2.0 with Candlestick, Volume, MA Overlays & Stats"""
+    """Display stock summary with candlestick charts, volume analysis, and technical indicators."""
     st.markdown(f"""
     <div style='background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%); 
                 color: white; padding: 2rem; border-radius: 16px; text-align: center; margin-bottom: 2rem;'>
@@ -21,7 +21,6 @@ def display_stock_summary(ticker, data, fmp_key, alpha_key, gemini_key):
             st.metric("💰 Current Price", f"${current_price:.2f}")
         return
 
-    # === ENHANCED METRICS DASHBOARD ===
     st.markdown("### 📈 Key Metrics")
     current_price = data['Close'].iloc[-1]
     prev_price = data['Close'].iloc[-2]
@@ -46,7 +45,6 @@ def display_stock_summary(ticker, data, fmp_key, alpha_key, gemini_key):
     col4.metric("📊 Volume", f"{volume:,.0f}", f"{vol_pct:+.1f}%")
     col5.metric("📉 50-Day MA", f"${ma_50:,.2f}", f"{(current_price / ma_50 - 1)*100:+.1f}%")
 
-    # === SUMMARY STATISTICS TABLE ===
     st.markdown("### 📋 30-Day Summary Stats")
     if len(data) >= 30:
         recent_data = data.tail(30)
@@ -64,7 +62,6 @@ def display_stock_summary(ticker, data, fmp_key, alpha_key, gemini_key):
     else:
         st.info("📊 Need 30+ days for detailed stats.")
 
-    # === ENHANCED CHARTS: Candlestick + Volume + MAs ===
     st.markdown("### 📊 Interactive Price Action")
     fig = make_subplots(
         rows=2, cols=1,
@@ -110,7 +107,6 @@ def display_stock_summary(ticker, data, fmp_key, alpha_key, gemini_key):
     fig.update_xaxes(rangeslider_visible=False)
     st.plotly_chart(fig, use_container_width=True)
 
-    # === RSI QUICK VIEW ===
     st.markdown("### 🎯 RSI Momentum (14-Day)")
     try:
         rsi = data['Close'].pct_change().rolling(14).apply(lambda x: (x[x > 0].mean() / abs(x[x < 0].mean())) * 100 if len(x) == 14 else 50).fillna(50)
@@ -124,25 +120,11 @@ def display_stock_summary(ticker, data, fmp_key, alpha_key, gemini_key):
     except:
         st.info("⚠️ RSI calculation requires sufficient data.")
 
-    # === API INTEGRATION CHECKS (REMOVED DISPLAY MESSAGES) ===
-    if fmp_key:
-        pass  # No display
-    else:
-        pass  # No display
-
-    if alpha_key:
-        pass  # No display
-    else:
-        pass  # No display
-
     if gemini_key:
         if st.button("✨ Generate AI Summary"):
             direction = "bullish" if pct_change > 0 else "bearish"
             rsi_val = rsi.iloc[-1] if 'rsi' in locals() else 50
             action = "buying opportunities" if direction == "bullish" else "caution"
-            st.info(f"🔄 AI Analysis: Based on recent trends, {ticker} shows {direction} momentum with {rsi_val:.0f} RSI. Consider {action}.")
-            # Placeholder - integrate actual Gemini call here
-    else:
-        pass  # No display
+            st.info(f"AI Analysis: Based on recent trends, {ticker} shows {direction} momentum with {rsi_val:.0f} RSI. Consider {action}.")
 
    

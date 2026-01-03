@@ -15,7 +15,6 @@ from ta.volatility import BollingerBands
 import warnings
 warnings.filterwarnings('ignore')
 
-# Custom CSS for enhanced styling
 st.markdown("""
 <style>
     .main-header {
@@ -59,7 +58,7 @@ st.markdown("""
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def add_advanced_features(hist_df):
-    """🚀 Enhanced Feature Engineering - 15+ Robust Indicators (Handles Edge Cases)"""
+    """Calculate technical indicators for machine learning features."""
     if hist_df.empty:
         return pd.DataFrame()
     
@@ -144,7 +143,7 @@ def add_advanced_features(hist_df):
     return df
 
 def train_model(X_train, y_train, X_test, y_test):
-    """🎯 Robust Ensemble Training with Class Balancing"""
+    """Train Random Forest classifier with balanced class weights."""
     scaler = StandardScaler()
     X_train_s = scaler.fit_transform(X_train)
     X_test_s = scaler.transform(X_test)
@@ -165,9 +164,8 @@ def train_model(X_train, y_train, X_test, y_test):
     return scaler, model, y_pred, y_proba
 
 def display_probabilistic_models(hist_data):
-    """🎯 Pro AI Prediction Dashboard - Enhanced with Multi-Horizon & Backtest"""
+    """Display probabilistic stock prediction dashboard with ML models."""
     
-    # Header
     st.markdown("""
     <div class="main-header">
         <h1 style='margin: 0; font-size: 3rem;'>🎯 AI Stock Prediction Engine Pro</h1>
@@ -333,8 +331,4 @@ def display_probabilistic_models(hist_data):
         st.info("⚠️ Report generation skipped due to class imbalance.")
     
     st.markdown("---")
-    st.success("✨ **Pro AI Model Deployed** | Ready for Multi-Horizon Predictions")
-
-# Legacy call (for compatibility)
-if 'hist_data' in locals():
-    display_probabilistic_models(hist_data)
+    st.success("Model deployed and ready for predictions")

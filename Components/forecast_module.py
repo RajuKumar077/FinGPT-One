@@ -16,9 +16,6 @@ from datetime import datetime, timedelta
 
 warnings.filterwarnings('ignore')
 
-# ============================================================================
-# CONFIGURATION & UTILITIES
-# ============================================================================
 
 def calculate_metrics(y_true, y_pred):
     """Calculate comprehensive forecasting metrics"""
@@ -77,9 +74,6 @@ def prepare_data_for_forecast(hist_data, target_col='Close', min_days=252):
     
     return data, target_col
 
-# ============================================================================
-# FORECASTING MODELS
-# ============================================================================
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def forecast_arima(data, target_col, forecast_days=30, order=None):
@@ -266,9 +260,6 @@ def forecast_moving_average(data, target_col, forecast_days=30, window=20):
         st.warning(f"⚠️ Moving Average failed: {str(e)}")
         return None
 
-# ============================================================================
-# VISUALIZATION FUNCTIONS
-# ============================================================================
 
 def create_forecast_comparison_chart(data, forecasts, target_col, ticker):
     """Create interactive forecast comparison chart"""
@@ -464,9 +455,6 @@ def create_residual_analysis(data, forecast_result, target_col, model_name):
     except Exception as e:
         return None
 
-# ============================================================================
-# MAIN DISPLAY FUNCTION
-# ============================================================================
 
 def display_forecasting(hist_data, ticker):
     """Main forecasting dashboard display"""
@@ -548,7 +536,6 @@ def display_forecasting(hist_data, ticker):
         st.error("❌ All forecasting models failed. Please try different settings.")
         return
     
-    # === FORECAST SUMMARY ===
     st.markdown("### 📊 Forecast Summary")
     
     cols = st.columns(len(forecasts))
@@ -570,12 +557,10 @@ def display_forecasting(hist_data, ticker):
     
     st.markdown("---")
     
-    # === MAIN FORECAST CHART ===
     st.markdown("### 📈 Multi-Model Forecast Comparison")
     forecast_chart = create_forecast_comparison_chart(data, forecasts, target_col, ticker)
     st.plotly_chart(forecast_chart, use_container_width=True)
     
-    # === TABS FOR DETAILED ANALYSIS ===
     tab1, tab2, tab3, tab4 = st.tabs([
         "📊 Model Details", "📉 Residual Analysis", "📋 Forecast Data", "ℹ️ Methodology"
     ])
