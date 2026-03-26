@@ -594,6 +594,8 @@ def main():
 
     if "ticker_input" not in st.session_state:
         st.session_state.ticker_input = "AAPL"
+    if "requested_ticker" not in st.session_state:
+        st.session_state.requested_ticker = ""
 
     def update_ticker_from_input():
         new_value = st.session_state.temp_ticker_input.upper().strip()
@@ -612,23 +614,29 @@ def main():
         help="Type a ticker symbol (e.g., AAPL) for auto-suggestions",
     )
 
-    query = st.session_state.ticker_input
+    pending_query = st.session_state.ticker_input
 
-    if len(query) >= 2:
-        suggestions = search_tickers(query, ALPHA_VANTAGE_API_KEY)
+    if len(pending_query) >= 2:
+        suggestions = search_tickers(pending_query, ALPHA_VANTAGE_API_KEY)
         if suggestions:
             st.sidebar.markdown("### 🔍 Suggestions:")
             st.sidebar.selectbox(
                 "Pick a ticker:",
                 options=suggestions,
-                index=0 if query.upper() in [s.upper() for s in suggestions] else 0,
+                index=0 if pending_query.upper() in [s.upper() for s in suggestions] else 0,
                 key="suggestion_select",
                 on_change=update_ticker_from_suggestion,
                 help="Select to auto-fill the ticker",
             )
-            query = st.session_state.ticker_input
+            pending_query = st.session_state.ticker_input
 
-    st.sidebar.markdown(f"**Selected: `{query}`**")
+    if st.sidebar.button("Load Dashboard", type="primary", use_container_width=True):
+        st.session_state.requested_ticker = pending_query
+
+    query = st.session_state.requested_ticker
+
+    st.sidebar.markdown(f"**Typed: `{pending_query}`**")
+    st.sidebar.markdown(f"**Loaded: `{query or 'None'}`**")
 
     page = st.sidebar.radio(
         "Dashboard Navigation",
@@ -636,7 +644,18 @@ def main():
     )
 
     if not query:
-        st.error("Please enter a valid ticker symbol.")
+        st.markdown(
+            """
+            <div class="glass-card">
+                <h3 style="margin-top: 0;">Load a Ticker to Start</h3>
+                <p style="margin-bottom: 0;">
+                    Enter a stock symbol in the sidebar and click <strong>Load Dashboard</strong>.
+                    This keeps the first render fast and avoids blocking on live market API calls.
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         return
 
     if page == "News Sentiment":
