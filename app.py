@@ -1,3 +1,4 @@
+import importlib
 import os
 import time
 import re
@@ -146,13 +147,14 @@ ALPHA_VANTAGE_API_KEY = get_secret("ALPHA_VANTAGE_API_KEY")
 GEMINI_API_KEY = get_secret("GEMINI_API_KEY")
 NEWS_API_KEY = get_secret("NEWS_API_KEY")
 
-try:
-    from Components.stock_summary import display_stock_summary
-    from Components.probabilistic_stock_model import display_probabilistic_models
-    from Components.forecast_module import display_forecasting
-    from Components.financials import display_financials
-except ImportError as e:
-    st.error(f"Component Import Error: {e}")
+def load_component(module_name: str, function_name: str):
+    """Import a dashboard component only when the user opens that page."""
+    try:
+        module = importlib.import_module(module_name)
+        return getattr(module, function_name)
+    except Exception as exc:
+        st.error(f"Component Import Error: {module_name}.{function_name} -> {exc}")
+        return None
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_stock_data(symbol: str):
@@ -666,13 +668,24 @@ def main():
         return
 
     if page == "Stock Summary":
-        display_stock_summary(query, hist_data, FMP_API_KEY, ALPHA_VANTAGE_API_KEY, GEMINI_API_KEY)
+        display_stock_summary = load_component("Components.stock_summary", "display_stock_summary")
+        if display_stock_summary:
+            display_stock_summary(query, hist_data, FMP_API_KEY, ALPHA_VANTAGE_API_KEY, GEMINI_API_KEY)
     elif page == "Forecasting":
-        display_forecasting(hist_data, query)
+        display_forecasting = load_component("Components.forecast_module", "display_forecasting")
+        if display_forecasting:
+            display_forecasting(hist_data, query)
     elif page == "Probabilistic Models":
-        display_probabilistic_models(hist_data)
+        display_probabilistic_models = load_component(
+            "Components.probabilistic_stock_model",
+            "display_probabilistic_models",
+        )
+        if display_probabilistic_models:
+            display_probabilistic_models(hist_data)
     elif page == "Financials":
-        display_financials(query, TIINGO_API_KEY)
+        display_financials = load_component("Components.financials", "display_financials")
+        if display_financials:
+            display_financials(query, TIINGO_API_KEY)
 
 if __name__ == "__main__":
     main()
