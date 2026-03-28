@@ -19,108 +19,245 @@ st.set_page_config(
 
 CSS_STYLES = """
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-
     :root {
-        --glass-bg: rgba(255, 255, 255, 0.03);
-        --glass-border: rgba(255, 255, 255, 0.08);
-        --accent-blue: #3B82F6;
-        --accent-purple: #8B5CF6;
-        --accent-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        --text-primary: #FFFFFF;
-        --text-secondary: rgba(255, 255, 255, 0.7);
-        --text-muted: rgba(255, 255, 255, 0.5);
-        --bg-dark: #1a1f3a;
-        --bg-card: rgba(30, 35, 58, 0.6);
+        --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", sans-serif;
+        --glass-bg: rgba(17, 24, 39, 0.72);
+        --glass-bg-strong: rgba(15, 23, 42, 0.84);
+        --glass-border: rgba(148, 163, 184, 0.20);
+        --text-primary: #F8FAFC;
+        --text-secondary: rgba(226, 232, 240, 0.76);
+        --text-muted: rgba(148, 163, 184, 0.88);
+        --accent-blue: #7CC3FF;
+        --accent-mint: #6EE7C8;
+        --accent-gold: #F7C66C;
+        --accent-rose: #F2A7B5;
+        --shadow-soft: 0 30px 80px rgba(2, 6, 23, 0.38);
+        --backdrop: blur(20px) saturate(150%);
     }
 
     .stApp {
-        background: linear-gradient(135deg, #1e2139 0%, #2d3561 50%, #1e2139 100%);
-        background-size: 200% 200%;
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        background:
+            radial-gradient(circle at top left, rgba(59, 130, 246, 0.14), transparent 28%),
+            radial-gradient(circle at top right, rgba(16, 185, 129, 0.10), transparent 22%),
+            radial-gradient(circle at bottom center, rgba(244, 114, 182, 0.06), transparent 26%),
+            linear-gradient(180deg, #040814 0%, #0b1220 28%, #0f172a 100%);
+        font-family: var(--font-ui);
         color: var(--text-primary);
-        animation: gradientFlow 20s ease infinite;
-    }
-
-    @keyframes gradientFlow {
-        0%, 100% { background-position: 0% 50%; }
-        50% { background-position: 100% 50%; }
+        min-height: 100vh;
     }
 
     .stApp *, .stMarkdown, .stMarkdown *, div, span, p, h1, h2, h3, h4, h5, h6, label {
         color: var(--text-primary) !important;
+        font-family: var(--font-ui) !important;
     }
 
     [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #1a1f3a 0%, #151829 100%) !important;
-        border-right: 1px solid rgba(255, 255, 255, 0.1) !important;
+        background: linear-gradient(180deg, rgba(9,14,26,0.96) 0%, rgba(13,20,36,0.94) 100%) !important;
+        border-right: 1px solid var(--glass-border) !important;
+        backdrop-filter: var(--backdrop);
     }
 
     [data-testid="stSidebar"] > div {
         background: transparent !important;
-        padding-top: 2rem !important;
+        padding-top: 1.6rem !important;
     }
 
     [data-testid="stSidebar"] h1 {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
         font-weight: 800 !important;
-        font-size: 1.8rem !important;
-        margin-bottom: 2rem !important;
-        letter-spacing: -0.5px;
+        font-size: 1.5rem !important;
+        margin-bottom: 1.5rem !important;
+        letter-spacing: -0.04em;
     }
 
     h1 {
         font-weight: 800 !important;
-        font-size: 2.5rem !important;
-        margin: 1.5rem 0 2rem 0 !important;
-        letter-spacing: -1px;
+        font-size: 2.8rem !important;
+        margin: 0 0 0.8rem 0 !important;
+        letter-spacing: -0.05em;
         line-height: 1.2 !important;
     }
 
     h2 {
         font-weight: 700 !important;
-        font-size: 1.8rem !important;
-        margin: 2rem 0 1.5rem 0 !important;
-        letter-spacing: -0.5px;
+        font-size: 1.9rem !important;
+        margin: 1.4rem 0 1rem 0 !important;
+        letter-spacing: -0.04em;
     }
 
     h3 {
         font-weight: 600 !important;
-        font-size: 1.4rem !important;
-        margin: 1.5rem 0 1rem 0 !important;
+        font-size: 1.28rem !important;
+        margin: 1.2rem 0 0.8rem 0 !important;
     }
 
     h4 {
         color: var(--text-secondary) !important;
         font-weight: 600 !important;
-        font-size: 1.1rem !important;
+        font-size: 1rem !important;
     }
 
-    [data-testid="stHeaderActionElements"],
-    [data-testid="stHeaderActionElements"] *,
-    [data-testid="stHeaderActionElements"] button,
-    [data-testid="stHeaderActionElements"] svg,
-    [data-testid="stHeaderActionElements"] a {
-        color: white !important;
-        fill: white !important;
-        stroke: white !important;
+    .block-container {
+        max-width: 1240px;
+        padding-top: 2rem;
+        padding-bottom: 3rem;
     }
 
-    [data-testid="stHeaderActionElements"] a:hover {
-        background: rgba(255, 255, 255, 0.1) !important;
-        border-radius: 4px !important;
+    div[data-testid="stHorizontalBlock"] {
+        align-items: stretch !important;
+        gap: 1rem !important;
+    }
+
+    div[data-testid="column"] > div {
+        height: 100%;
+    }
+
+    [data-testid="stToolbar"], footer, #MainMenu {
+        visibility: hidden;
+    }
+
+    .hero-panel,
+    .glass-card,
+    div[data-testid="stMetric"],
+    [data-testid="stDataFrame"],
+    [data-testid="stPlotlyChart"],
+    .stAlert,
+    .stTabs [data-baseweb="tab-panel"] {
+        background: linear-gradient(180deg, rgba(15,23,42,0.88) 0%, rgba(15,23,42,0.72) 100%);
+        backdrop-filter: var(--backdrop);
+        -webkit-backdrop-filter: var(--backdrop);
+        border: 1px solid var(--glass-border);
+        box-shadow: var(--shadow-soft);
+        border-radius: 28px;
+    }
+
+    .hero-panel {
+        padding: 2.15rem 2.3rem;
+        margin-bottom: 1.4rem;
+    }
+
+    .hero-panel h1 {
+        margin-bottom: 0.6rem !important;
+    }
+
+    .hero-panel p {
+        margin: 0;
+        max-width: 760px;
+        color: var(--text-secondary) !important;
+        font-size: 1.05rem;
+        line-height: 1.7;
+    }
+
+    .hero-kicker,
+    .section-kicker {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.35rem 0.72rem;
+        border-radius: 999px;
+        background: rgba(30, 41, 59, 0.82);
+        border: 1px solid rgba(148, 163, 184, 0.20);
+        color: var(--text-secondary) !important;
+        font-size: 0.82rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin-bottom: 0.85rem;
     }
 
     .glass-card {
-        background: var(--bg-card);
-        border-radius: 16px;
-        border: 1px solid var(--glass-border);
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-        padding: 1.2rem 1.4rem;
-        margin-bottom: 1.2rem;
+        padding: 1.25rem 1.45rem;
+        margin-bottom: 1rem;
+    }
+
+    .metric-card {
+        background: linear-gradient(180deg, rgba(15,23,42,0.92) 0%, rgba(17,24,39,0.82) 100%);
+        backdrop-filter: var(--backdrop);
+        border: 1px solid rgba(148,163,184,0.18);
+        border-radius: 24px;
+        padding: 1.05rem 1.1rem;
+        min-height: 132px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        box-shadow: var(--shadow-soft);
+        width: 100%;
+    }
+
+    .metric-label {
+        color: var(--text-secondary) !important;
+        font-size: 0.88rem;
+        letter-spacing: 0.02em;
+    }
+
+    .metric-value {
+        font-size: 1.7rem;
+        line-height: 1.2;
+        margin: 0.55rem 0 0.35rem 0;
+        font-weight: 700;
+    }
+
+    .metric-delta {
+        color: var(--text-muted) !important;
+        font-size: 0.92rem;
+        line-height: 1.45;
+    }
+
+    .stButton > button,
+    .stDownloadButton > button {
+        border-radius: 999px !important;
+        border: 1px solid rgba(148,163,184,0.20) !important;
+        background: linear-gradient(180deg, rgba(30,41,59,0.96) 0%, rgba(15,23,42,0.92) 100%) !important;
+        color: #F5F7FB !important;
+        padding: 0.62rem 1rem !important;
+        box-shadow: 0 14px 28px rgba(2,6,23,0.28) !important;
+    }
+
+    .stTextInput input,
+    .stSelectbox [data-baseweb="select"],
+    .stMultiSelect [data-baseweb="select"] {
+        border-radius: 18px !important;
+        background: rgba(15,23,42,0.9) !important;
+        border: 1px solid rgba(148,163,184,0.18) !important;
+    }
+
+    [data-testid="stMetric"] {
+        padding: 1rem 1.1rem;
+        min-height: 132px;
+    }
+
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 0.5rem;
+        background: transparent;
+        margin-bottom: 0.75rem;
+    }
+
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 999px;
+        background: rgba(15,23,42,0.88);
+        border: 1px solid rgba(148,163,184,0.18);
+        padding: 0.45rem 0.9rem;
+    }
+
+    .stTabs [aria-selected="true"] {
+        background: rgba(30,41,59,0.98) !important;
+        border-color: rgba(124,195,255,0.28) !important;
+    }
+
+    .stAlert {
+        padding: 1rem 1.1rem !important;
+    }
+
+    .stTabs [data-baseweb="tab-panel"] {
+        padding: 1rem 1.1rem 1.2rem 1.1rem;
+    }
+
+    [data-testid="stPlotlyChart"] > div,
+    [data-testid="stDataFrame"] > div {
+        border-radius: 24px !important;
+        overflow: hidden;
+    }
+
+    .stMarkdown p {
+        line-height: 1.65;
     }
 </style>
 """
@@ -593,7 +730,7 @@ def search_tickers(search_term: str, api_key: str):
     return [ticker for ticker in POPULAR_TICKERS if search_term in ticker][:10]
 
 def main():
-    st.sidebar.title("💎 FinGPT One")
+    st.sidebar.title("FinGPT One")
 
     if "ticker_input" not in st.session_state:
         st.session_state.ticker_input = "AAPL"
@@ -649,13 +786,14 @@ def main():
     if not query:
         st.markdown(
             """
-            <div class="glass-card">
-                <h3 style="margin-top: 0;">Load a Ticker to Start</h3>
-                <p style="margin-bottom: 0;">
-                    Enter a stock symbol in the sidebar and click <strong>Load Dashboard</strong>.
-                    This keeps the first render fast and avoids blocking on live market API calls.
+            <section class="hero-panel">
+                <div class="hero-kicker">Glass Dashboard</div>
+                <h1>Market intelligence, redesigned.</h1>
+                <p>
+                    Enter a ticker in the sidebar and load the dashboard to explore cleaner charts,
+                    upgraded models, and a lighter Apple-inspired interface.
                 </p>
-            </div>
+            </section>
             """,
             unsafe_allow_html=True,
         )
@@ -688,6 +826,25 @@ def main():
     if hist_data.empty:
         st.error(f"Could not find data for {query}. Please check the ticker symbol.")
         return
+
+    st.markdown(
+        f"""
+        <div class="glass-card">
+            <div class="section-kicker">Live Session</div>
+            <div style="display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;">
+                <div>
+                    <h3 style="margin:0 0 0.3rem 0;">{query} loaded</h3>
+                    <p style="margin:0;color:var(--text-secondary);">Page: {page}</p>
+                </div>
+                <div style="text-align:right;">
+                    <p style="margin:0;color:var(--text-secondary);">Data source</p>
+                    <p style="margin:0;font-weight:600;">{source or 'Unknown'}</p>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     if page == "Stock Summary":
         display_stock_summary = load_component("Components.stock_summary", "display_stock_summary")

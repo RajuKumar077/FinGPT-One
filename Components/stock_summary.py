@@ -1,130 +1,188 @@
-import streamlit as st
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-import pandas as pd
 import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
+import streamlit as st
+from plotly.subplots import make_subplots
 
-def display_stock_summary(ticker, data, fmp_key, alpha_key, gemini_key):
-    """Display stock summary with candlestick charts, volume analysis, and technical indicators."""
-    st.markdown(f"""
-    <div style='background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%); 
-                color: white; padding: 2rem; border-radius: 16px; text-align: center; margin-bottom: 2rem;'>
-        <h1 style='margin: 0; font-size: 3rem;'>📊 {ticker} Stock Summary Pro</h1>
-        <p style='margin: 0; font-size: 1.2rem; opacity: 0.9;'>Advanced analytics with OHLCV, MAs, and volume insights</p>
-    </div>
-    """, unsafe_allow_html=True)
+CHART_PAPER = "rgba(255,255,255,0.02)"
+CHART_PLOT = "rgba(255,255,255,0.01)"
+TEXT_COLOR = "#E8EEF9"
+GRID_COLOR = "rgba(255,255,255,0.08)"
+FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", sans-serif'
 
-    if len(data) < 2:
-        st.warning("❌ Insufficient historical data for full analysis.")
-        if not data.empty:
-            current_price = data['Close'].iloc[-1]
-            st.metric("💰 Current Price", f"${current_price:.2f}")
-        return
 
-    st.markdown("### 📈 Key Metrics")
-    current_price = data['Close'].iloc[-1]
-    prev_price = data['Close'].iloc[-2]
-    change = current_price - prev_price
-    pct_change = (change / prev_price) * 100
+def apply_chart_theme(fig, title, height):
+    fig.update_layout(
+        title=title,
+        height=height,
+        paper_bgcolor=CHART_PAPER,
+        plot_bgcolor=CHART_PLOT,
+        font=dict(color=TEXT_COLOR, family=FONT_FAMILY),
+        margin=dict(l=24, r=24, t=64, b=24),
+        hovermode="x unified",
+    )
+    fig.update_xaxes(showgrid=True, gridcolor=GRID_COLOR, zeroline=False)
+    fig.update_yaxes(showgrid=True, gridcolor=GRID_COLOR, zeroline=False)
+    return fig
 
-    # Additional metrics
-    open_price = data['Open'].iloc[-1]
-    high_price = data['High'].iloc[-1]
-    low_price = data['Low'].iloc[-1]
-    volume = data['Volume'].iloc[-1]
-    avg_volume = data['Volume'].tail(20).mean() if len(data) >= 20 else volume
-    vol_pct = (volume / avg_volume - 1) * 100 if avg_volume > 0 else 0
 
-    # 50-day MA for trend
-    ma_50 = data['Close'].rolling(window=50, min_periods=1).mean().iloc[-1]
-
-    col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("💰 Current Price", f"${current_price:,.2f}", f"{pct_change:+.2f}%")
-    col2.metric("🟢 High", f"${high_price:,.2f}")
-    col3.metric("🔴 Low", f"${low_price:,.2f}")
-    col4.metric("📊 Volume", f"{volume:,.0f}", f"{vol_pct:+.1f}%")
-    col5.metric("📉 50-Day MA", f"${ma_50:,.2f}", f"{(current_price / ma_50 - 1)*100:+.1f}%")
-
-    st.markdown("### 📋 30-Day Summary Stats")
-    if len(data) >= 30:
-        recent_data = data.tail(30)
-        stats = {
-            'Metric': ['Mean Close', 'Volatility (Std)', 'Max Drawdown %', 'Sharpe Ratio (approx)', 'Win Rate %'],
-            'Value': [
-                f"${recent_data['Close'].mean():.2f}",
-                f"{recent_data['Close'].pct_change().std() * np.sqrt(252):.2%}",
-                f"{((recent_data['Close'] / recent_data['Close'].cummax()) - 1).min():.2%}",
-                f"{recent_data['Close'].pct_change().mean() / recent_data['Close'].pct_change().std() * np.sqrt(252):.2f}",
-                f"{(recent_data['Close'].pct_change() > 0).mean():.1%}"
-            ]
-        }
-        st.dataframe(pd.DataFrame(stats), use_container_width=True)
-    else:
-        st.info("📊 Need 30+ days for detailed stats.")
-
-    st.markdown("### 📊 Interactive Price Action")
-    fig = make_subplots(
-        rows=2, cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.03,
-        subplot_titles=('Candlestick with MAs', 'Volume'),
-        row_width=[0.7, 0.3]
+def render_metric_card(label, value, detail, accent):
+    st.markdown(
+        f"""
+        <div class="metric-card">
+            <div class="metric-label">{label}</div>
+            <div class="metric-value">{value}</div>
+            <div class="metric-delta" style="color:{accent};">{detail}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
-    # Candlestick
+
+def compute_rsi(close, window=14):
+    delta = close.diff()
+    gains = delta.clip(lower=0)
+    losses = -delta.clip(upper=0)
+    avg_gain = gains.ewm(alpha=1 / window, min_periods=window, adjust=False).mean()
+    avg_loss = losses.ewm(alpha=1 / window, min_periods=window, adjust=False).mean()
+    rs = avg_gain / avg_loss.replace(0, np.nan)
+    return (100 - (100 / (1 + rs))).fillna(50)
+
+
+def compute_macd(close, fast=12, slow=26, signal=9):
+    ema_fast = close.ewm(span=fast, adjust=False).mean()
+    ema_slow = close.ewm(span=slow, adjust=False).mean()
+    macd_line = ema_fast - ema_slow
+    signal_line = macd_line.ewm(span=signal, adjust=False).mean()
+    histogram = macd_line - signal_line
+    return macd_line, signal_line, histogram
+
+
+def create_price_chart(ticker, data):
+    fig = make_subplots(
+        rows=3,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.04,
+        row_heights=[0.58, 0.2, 0.22],
+        subplot_titles=("Price Action", "Volume", "RSI Momentum"),
+    )
+
     fig.add_trace(
         go.Candlestick(
             x=data.index,
-            open=data['Open'],
-            high=data['High'],
-            low=data['Low'],
-            close=data['Close'],
-            name='OHLC'
+            open=data["Open"],
+            high=data["High"],
+            low=data["Low"],
+            close=data["Close"],
+            name="Price",
+            increasing_line_color="#8ED8B3",
+            decreasing_line_color="#F3A6B3",
         ),
-        row=1, col=1
+        row=1,
+        col=1,
     )
 
-    # Moving Averages
-    colors = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#96ceb4']
-    windows = [5, 10, 20, 50]
-    for i, w in enumerate(windows):
-        if len(data) >= w:
-            ma = data['Close'].rolling(window=w).mean()
+    ma_colors = {10: "#9DC6FF", 20: "#7EE0C3", 50: "#F8C471"}
+    for window, color in ma_colors.items():
+        if len(data) >= window:
             fig.add_trace(
-                go.Scatter(x=data.index, y=ma, line=dict(width=1, color=colors[i]), name=f'MA-{w}'),
-                row=1, col=1
+                go.Scatter(
+                    x=data.index,
+                    y=data["Close"].rolling(window=window).mean(),
+                    name=f"MA {window}",
+                    line=dict(color=color, width=2),
+                ),
+                row=1,
+                col=1,
             )
 
-    # Volume - Fixed: Use vectorized comparison
-    colors_v = ['green' if close > open_ else 'red' for close, open_ in zip(data['Close'], data['Open'])]
+    volume_colors = np.where(data["Close"] >= data["Open"], "#8ED8B3", "#F3A6B3")
     fig.add_trace(
-        go.Bar(x=data.index, y=data['Volume'], name='Volume', marker_color=colors_v),
-        row=2, col=1
+        go.Bar(x=data.index, y=data["Volume"], name="Volume", marker_color=volume_colors, opacity=0.7),
+        row=2,
+        col=1,
     )
 
+    rsi = compute_rsi(data["Close"])
+    fig.add_trace(go.Scatter(x=data.index, y=rsi, name="RSI", line=dict(color="#9DC6FF", width=2)), row=3, col=1)
+    fig.add_hline(y=70, line_dash="dash", line_color="rgba(243,166,179,0.7)", row=3, col=1)
+    fig.add_hline(y=30, line_dash="dash", line_color="rgba(142,216,179,0.7)", row=3, col=1)
+    fig.update_yaxes(range=[0, 100], row=3, col=1)
     fig.update(layout_xaxis_rangeslider_visible=False)
-    fig.update_layout(height=800, title=f"{ticker} Price Action with Indicators", template='plotly_white')
     fig.update_xaxes(rangeslider_visible=False)
-    st.plotly_chart(fig, use_container_width=True)
+    return apply_chart_theme(fig, f"{ticker} market overview", 880)
 
-    st.markdown("### 🎯 RSI Momentum (14-Day)")
-    try:
-        rsi = data['Close'].pct_change().rolling(14).apply(lambda x: (x[x > 0].mean() / abs(x[x < 0].mean())) * 100 if len(x) == 14 else 50).fillna(50)
-        fig_rsi = go.Figure()
-        fig_rsi.add_trace(go.Scatter(x=data.index, y=rsi, line=dict(color='#f59e0b', width=2), name='RSI'))
-        fig_rsi.add_hline(y=70, line_dash="dash", line_color="red", annotation_text="Overbought")
-        fig_rsi.add_hline(y=30, line_dash="dash", line_color="green", annotation_text="Oversold")
-        fig_rsi.add_hline(y=50, line_dash="dot", line_color="gray")
-        fig_rsi.update_layout(height=400, title=f"{ticker} RSI (14)", template='plotly_white', yaxis_range=[0, 100])
-        st.plotly_chart(fig_rsi, use_container_width=True)
-    except:
-        st.info("⚠️ RSI calculation requires sufficient data.")
+
+def display_stock_summary(ticker, data, fmp_key, alpha_key, gemini_key):
+    st.markdown(
+        f"""
+        <section class="hero-panel">
+            <div class="hero-kicker">Market Overview</div>
+            <h1>{ticker} stock summary</h1>
+            <p>Cleaner technicals, richer momentum signals, and a softer Apple-inspired glass layout for fast scanning.</p>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if len(data) < 2:
+        st.warning("Not enough historical data to build the full dashboard.")
+        if not data.empty:
+            render_metric_card("Current Price", f"${data['Close'].iloc[-1]:,.2f}", "Latest close", "#9DC6FF")
+        return
+
+    current_price = float(data["Close"].iloc[-1])
+    prev_price = float(data["Close"].iloc[-2])
+    pct_change = ((current_price - prev_price) / prev_price) * 100
+    high_price = float(data["High"].iloc[-1])
+    low_price = float(data["Low"].iloc[-1])
+    volume = float(data["Volume"].iloc[-1])
+    avg_volume = float(data["Volume"].tail(20).mean())
+    ma_20 = float(data["Close"].rolling(window=20, min_periods=1).mean().iloc[-1])
+    ma_50 = float(data["Close"].rolling(window=50, min_periods=1).mean().iloc[-1])
+    annualized_vol = float(data["Close"].pct_change().tail(60).std() * np.sqrt(252))
+    rsi = compute_rsi(data["Close"])
+
+    st.markdown("### Snapshot")
+    cols = st.columns(5)
+    with cols[0]:
+        render_metric_card("Current Price", f"${current_price:,.2f}", f"{pct_change:+.2f}% today", "#7EE0C3" if pct_change >= 0 else "#F3A6B3")
+    with cols[1]:
+        render_metric_card("Session Range", f"${low_price:,.2f} - ${high_price:,.2f}", "Day low/high", "#9DC6FF")
+    with cols[2]:
+        render_metric_card("Volume", f"{volume:,.0f}", f"{((volume / avg_volume) - 1) * 100:+.1f}% vs 20D avg", "#F8C471")
+    with cols[3]:
+        render_metric_card("Trend", f"${ma_20:,.2f}", f"20D MA | 50D MA ${ma_50:,.2f}", "#9DC6FF")
+    with cols[4]:
+        render_metric_card("Momentum", f"{rsi.iloc[-1]:.1f} RSI", f"Volatility {annualized_vol:.1%}", "#7EE0C3")
+
+    if len(data) >= 30:
+        recent = data.tail(30).copy()
+        drawdown = ((recent["Close"] / recent["Close"].cummax()) - 1).min()
+        returns = recent["Close"].pct_change().dropna()
+        sharpe = (returns.mean() / returns.std() * np.sqrt(252)) if returns.std() not in (0, np.nan) else np.nan
+        stat_frame = pd.DataFrame(
+            {
+                "Metric": ["30D Mean Close", "30D Return", "Max Drawdown", "Sharpe Ratio", "Positive Days"],
+                "Value": [
+                    f"${recent['Close'].mean():,.2f}",
+                    f"{((recent['Close'].iloc[-1] / recent['Close'].iloc[0]) - 1):+.2%}",
+                    f"{drawdown:.2%}",
+                    f"{sharpe:.2f}" if not np.isnan(sharpe) else "N/A",
+                    f"{(returns > 0).mean():.1%}",
+                ],
+            }
+        )
+        st.markdown("### Performance Notes")
+        st.dataframe(stat_frame, use_container_width=True, hide_index=True)
+
+    st.markdown("### Price Action")
+    st.plotly_chart(create_price_chart(ticker, data.tail(180)), use_container_width=True)
 
     if gemini_key:
-        if st.button("✨ Generate AI Summary"):
-            direction = "bullish" if pct_change > 0 else "bearish"
-            rsi_val = rsi.iloc[-1] if 'rsi' in locals() else 50
-            action = "buying opportunities" if direction == "bullish" else "caution"
-            st.info(f"AI Analysis: Based on recent trends, {ticker} shows {direction} momentum with {rsi_val:.0f} RSI. Consider {action}.")
-
-   
+        if st.button("Generate AI Summary"):
+            trend = "constructive" if current_price >= ma_20 >= ma_50 else "mixed"
+            st.info(
+                f"{ticker} looks {trend} right now. Price is {pct_change:+.2f}% on the day, RSI sits at {rsi.iloc[-1]:.1f}, and the 20-day average is ${ma_20:,.2f}."
+            )
