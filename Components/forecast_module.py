@@ -10,9 +10,13 @@ import plotly.express as px
 from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
-from prophet import Prophet
 import warnings
 from datetime import datetime, timedelta
+
+try:
+    from prophet import Prophet
+except Exception:
+    Prophet = None
 
 warnings.filterwarnings('ignore')
 
@@ -188,6 +192,10 @@ def forecast_exponential_smoothing(data, target_col, forecast_days=30):
 @st.cache_data(ttl=3600, show_spinner=False)
 def forecast_prophet(data, target_col, forecast_days=30):
     """Facebook Prophet Forecasting Model"""
+    if Prophet is None:
+        st.warning("Prophet is not installed in this environment, so that model is unavailable.")
+        return None
+
     try:
         # Prepare data for Prophet
         df_prophet = pd.DataFrame({
@@ -484,7 +492,7 @@ def display_forecasting(hist_data, ticker):
         available_models.extend(['ARIMA'])
     if len(data) >= 365:  # 1+ year with seasonality
         available_models.extend(['SARIMA'])
-    if len(data) >= 365:  # Prophet needs at least 1 year
+    if len(data) >= 365 and Prophet is not None:  # Prophet needs at least 1 year
         available_models.extend(['Prophet'])
     
     # Default models based on data availability
@@ -510,6 +518,9 @@ def display_forecasting(hist_data, ticker):
     if len(data) < 365:
         st.sidebar.info("📅 Seasonal models work best with 1+ years of data")
     
+    if len(data) >= 365 and Prophet is None:
+        st.sidebar.info("Prophet is optional and not installed in this deployment.")
+
     # Generate forecasts
     forecasts = {}
     

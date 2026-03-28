@@ -78,6 +78,12 @@ cd FinGPT-One
 pip install -r requirements.txt
 ```
 
+Optional:
+```bash
+pip install prophet
+```
+Install `prophet` only if you want the Prophet forecasting model. The app now runs without it.
+
 3. Configure API keys:
 ```bash
 cp .streamlit/secrets.toml.example .streamlit/secrets.toml
@@ -153,7 +159,7 @@ See [SECURITY.md](SECURITY.md) for detailed documentation.
 
 - **Framework**: Streamlit 1.45.1, Python 3.9+
 - **Data Processing**: Pandas 2.0.3, NumPy 1.26.4, yfinance 0.2.28
-- **Machine Learning**: scikit-learn 1.3.0, statsmodels 0.12.0+, Prophet, ta
+- **Machine Learning**: scikit-learn 1.3.0, statsmodels 0.12.0+, ta
 - **Visualization**: Plotly 5.20.0, Matplotlib 3.8.4, Seaborn 0.13.2
 - **NLP**: TextBlob 0.18.0
 - **Utilities**: requests 2.31.0, python-dotenv

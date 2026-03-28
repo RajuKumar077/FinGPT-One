@@ -12,5 +12,4 @@ pandas-datareader==0.10.0  # Confirmed compatible version for Python 3.9
 retrying
 python-dotenv
 ta
-prophet
 statsmodels>=0.12.0 
