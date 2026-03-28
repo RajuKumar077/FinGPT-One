@@ -1,17 +1,13 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import yfinance as yf
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-from sklearn.preprocessing import MinMaxScaler
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import plotly.express as px
 from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 import warnings
-from datetime import datetime, timedelta
 
 try:
     from prophet import Prophet

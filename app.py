@@ -8,11 +8,8 @@ from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 import requests
-import yfinance as yf
 import streamlit as st
 from dotenv import load_dotenv
-from textblob import TextBlob
-import plotly.express as px
 
 st.set_page_config(
     page_title="FinGPT One - Pro",
@@ -159,6 +156,8 @@ def load_component(module_name: str, function_name: str):
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_stock_data(symbol: str):
     """Fetch stock data with multi-layer failover: yfinance -> Tiingo -> Alpha Vantage -> FMP -> Synthetic."""
+    import yfinance as yf
+
     symbol = symbol.strip().upper()
 
     periods_to_try = ["1y", "2y", "5y"]
@@ -360,6 +359,8 @@ def get_company_name_from_ticker(ticker: str, fmp_api_key: str,
 def analyze_sentiment(text: str) -> float:
     if not text or not text.strip():
         return 0.0
+    from textblob import TextBlob
+
     return TextBlob(text).sentiment.polarity
 
 def generate_sentiment_summary(sentiments):
@@ -388,6 +389,8 @@ def generate_sentiment_summary(sentiments):
 def create_sentiment_timeline(sentiments, dates):
     if not sentiments or not dates or len(sentiments) != len(dates):
         return None
+    import plotly.express as px
+
     df = pd.DataFrame(
         {
             "Date": pd.to_datetime(dates),
